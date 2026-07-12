@@ -1,0 +1,19 @@
+name: Sync fork with upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync fork main branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh repo sync "$GITHUB_REPOSITORY" -b main
