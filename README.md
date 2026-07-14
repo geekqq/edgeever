@@ -56,18 +56,24 @@ The automated helper commands are recommended. If you create the Cloudflare reso
 - Three-pane layout: notebook tree, note list, and main editor.
 - Unlimited nested notebooks.
 - Rich text editing.
+- Switch between Markdown source and rich text views on desktop.
 - Note version history for reviewing previous content changes.
 - Local browser-side image compression before upload, often reducing screenshots and large photos by about 50%-90%.
 - Batch note merging.
 - Batch note moving, notebook drag sorting, and hierarchy editing.
 - Offline drafts and local sync queue for existing notes.
 - Single-user login with PBKDF2-SHA256 password hashing.
+- Chrome/Edge web clipper is complete and pending store publication.
 
 ## PWA Installation
 
 EdgeEver can be installed as a PWA on desktop or mobile home screens. On desktop, open the site in Chrome or Edge and use the install icon in the address bar. On Android, open it in Chrome, use the three-dot menu, and choose **Add to Home screen** or **Install**. Avoid installing from embedded browsers such as WeChat.
 
 > Common pitfall: When installing the PWA on mobile, Chrome or Edge is recommended. Other mobile browsers may encounter compatibility issues or unexpected errors during installation.
+
+## Chrome/Edge Web Clipper
+
+The Chrome/Edge web clipper is complete and pending store publication.
 
 ## Native Clients
 
@@ -81,6 +87,7 @@ The goal is to let users connect these clients to their own self-hosted EdgeEver
 - Official site: Astro static site in `apps/site`, deployable to Cloudflare Pages.
 - Frontend: Vite, React, React Router, TanStack Query, Tailwind CSS, shadcn/ui, and Radix UI.
 - Editor: TipTap / ProseMirror with Markdown support; PWA uses vite-plugin-pwa, Workbox, and Dexie.
+- Web clipper: Manifest V3, Mozilla Readability, and Turndown for Chrome and Microsoft Edge.
 - Backend: Cloudflare Workers, Hono, Zod, D1, and R2, with REST API, OpenAPI, and Remote MCP.
 
 ## Quick Start
@@ -114,6 +121,7 @@ bun run build
 
 ```text
 apps/web          Vite + React frontend, PWA, offline drafts, and sync queue
+apps/extension    Chrome/Edge Manifest V3 web clipper
 apps/api          Cloudflare Worker + Hono API, OpenAPI, MCP endpoint
 apps/mobile       Expo + React Native mobile app
 apps/site         Astro official website, deployable independently
