@@ -12,6 +12,8 @@ if (wranglerArgs.length === 0) {
   process.exit(1);
 }
 
+const requestedInstance = process.env.EDGE_EVER_INSTANCE;
+
 const loadLocalEnv = () => {
   const envPath = resolve(".env.local");
   if (!existsSync(envPath)) {
@@ -47,6 +49,13 @@ const loadLocalEnv = () => {
 
 loadLocalEnv();
 
+// An instance selected for this command must take precedence over the default
+// stored in .env.local. Bun loads .env.local before this script starts, so
+// capture the effective process value before the explicit reload above.
+if (requestedInstance !== undefined) {
+  process.env.EDGE_EVER_INSTANCE = requestedInstance;
+}
+
 const baseConfigPath = resolve(process.env.WRANGLER_CONFIG ?? "wrangler.toml");
 const instance = process.env.EDGE_EVER_INSTANCE?.trim();
 const instanceKey = instance?.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
@@ -60,6 +69,7 @@ const generatedSecretsPath = resolve(
     ? `.env.wrangler.generated.${instanceKey.toLowerCase()}.secrets`
     : ".env.wrangler.generated.secrets",
 );
+const generatedLocalDevEnvPath = resolve(".env.wrangler.generated.local");
 let config = readFileSync(baseConfigPath, "utf8");
 let changed = false;
 
@@ -128,6 +138,7 @@ const runtimeVars = {
   EDGE_EVER_SESSION_TTL_DAYS: envValue("SESSION_TTL_DAYS"),
   EDGE_EVER_R2_BUCKET_NAME: envValue("R2_BUCKET_NAME"),
   EDGE_EVER_DEMO_MODE: envValue("DEMO_MODE"),
+  EDGE_EVER_LOCAL_DEMO_SEED: envValue("LOCAL_DEMO_SEED"),
 };
 const runtimeVarLines = Object.entries(runtimeVars)
   .filter(([, value]) => Boolean(value))
@@ -145,6 +156,11 @@ ${runtimeVarLines.join("\n")}
 const demoMode = envValue("DEMO_MODE")?.toLowerCase();
 if (demoMode && !["true", "false"].includes(demoMode)) {
   throw new Error("EDGE_EVER_DEMO_MODE must be true or false.");
+}
+
+const localDemoSeed = envValue("LOCAL_DEMO_SEED")?.toLowerCase();
+if (localDemoSeed && !["true", "false"].includes(localDemoSeed)) {
+  throw new Error("EDGE_EVER_LOCAL_DEMO_SEED must be true or false.");
 }
 
 if (demoMode === "true") {
@@ -171,6 +187,16 @@ custom_domain = ${customDomain ? "true" : "false"}
 
 const isRemoteCommand =
   wranglerArgs.includes("deploy") || wranglerArgs.includes("--remote");
+const isRemoteDevCommand = wranglerArgs.includes("dev") && wranglerArgs.includes("--remote");
+const isLocalDevCommand = wranglerArgs.includes("dev") && wranglerArgs.includes("--local");
+
+if (isRemoteDevCommand && !instance) {
+  console.error(
+    "Remote development requires an explicit instance. Run EDGE_EVER_INSTANCE=<name> bun run dev:remote.",
+  );
+  process.exit(1);
+}
+
 if (isRemoteCommand && config.includes(`database_id = "${PLACEHOLDER_D1_ID}"`)) {
   console.error(
     [
@@ -191,11 +217,22 @@ if (changed) {
 
 const isDeployCommand = wranglerArgs.includes("deploy");
 const hasSecretsFileArg = wranglerArgs.some((arg) => arg === "--secrets-file" || arg.startsWith("--secrets-file="));
+const hasEnvFileArg = wranglerArgs.some((arg) => arg === "--env-file" || arg.startsWith("--env-file="));
+const authPassword = envValue("AUTH_PASSWORD");
 const authPasswordHash = envValue("AUTH_PASSWORD_HASH");
+const authSecrets = {
+  ...(authPassword ? { EDGE_EVER_AUTH_PASSWORD: authPassword } : {}),
+  ...(authPasswordHash ? { EDGE_EVER_AUTH_PASSWORD_HASH: authPasswordHash } : {}),
+};
 const finalWranglerArgs = [...wranglerArgs];
 
-if (isDeployCommand && authPasswordHash && !hasSecretsFileArg) {
-  writeFileSync(generatedSecretsPath, `EDGE_EVER_AUTH_PASSWORD_HASH=${authPasswordHash}\n`);
+if (isLocalDevCommand && !hasEnvFileArg) {
+  writeFileSync(generatedLocalDevEnvPath, "# Intentionally empty: local development must not inherit remote instance secrets.\n");
+  finalWranglerArgs.push("--env-file", generatedLocalDevEnvPath);
+}
+
+if (isDeployCommand && Object.keys(authSecrets).length > 0 && !hasSecretsFileArg) {
+  writeFileSync(generatedSecretsPath, `${JSON.stringify(authSecrets, null, 2)}\n`);
   finalWranglerArgs.push("--secrets-file", generatedSecretsPath);
 }
 
@@ -214,23 +251,25 @@ const result = spawnSync(executable, ["--config", configPath, ...finalWranglerAr
   shell: process.platform === "win32",
 });
 
-if (result.status === 0 && isDeployCommand && authPasswordHash) {
-  const secretResult = spawnSync(
-    executable,
-    ["--config", configPath, "secret", "put", "EDGE_EVER_AUTH_PASSWORD_HASH"],
-    {
-      input: authPasswordHash,
-      stdio: ["pipe", "inherit", "inherit"],
-      shell: process.platform === "win32",
-    },
-  );
+if (result.status === 0 && isDeployCommand) {
+  for (const [secretName, secretValue] of Object.entries(authSecrets)) {
+    const secretResult = spawnSync(
+      executable,
+      ["--config", configPath, "secret", "put", secretName],
+      {
+        input: secretValue,
+        stdio: ["pipe", "inherit", "inherit"],
+        shell: process.platform === "win32",
+      },
+    );
 
-  if (secretResult.error) {
-    throw secretResult.error;
-  }
+    if (secretResult.error) {
+      throw secretResult.error;
+    }
 
-  if (secretResult.status !== 0) {
-    process.exit(secretResult.status ?? 1);
+    if (secretResult.status !== 0) {
+      process.exit(secretResult.status ?? 1);
+    }
   }
 }
 

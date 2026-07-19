@@ -1,4 +1,10 @@
 import { Bold, Check, ChevronDown, ImagePlus, List, Minus, Quote } from "lucide-react";
+import {
+  MOBILE_EDITOR_TOOLBAR_ACTIONS,
+  getMobileEditorToolbarActionLabel,
+  type MobileEditorToolbarActionId,
+} from "@edgeever/shared/mobile-editor";
+import type { ReactNode } from "react";
 import type { NotebookMoveOption } from "@/lib/app-helpers";
 import type { MobileEditorSaveState } from "@/lib/mobile-editor-standalone";
 
@@ -46,68 +52,51 @@ export const MobileEditorToolbar = ({
   onToggleBulletList: () => void;
   onToggleBlockquote: () => void;
   onSetHorizontalRule: () => void;
-}) => (
-  <div className="mobile-editor-tool-row">
-    <button
-      className="mobile-editor-tool-button"
-      type="button"
-      aria-label="上传图片"
-      title="上传图片"
-      disabled={disabled}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onPickImage}
-    >
-      <ImagePlus aria-hidden="true" size={18} strokeWidth={2} />
-    </button>
-    <button
-      className="mobile-editor-tool-button"
-      type="button"
-      aria-label="加粗"
-      title="加粗"
-      aria-pressed={boldActive}
-      disabled={disabled}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onToggleBold}
-    >
-      <Bold aria-hidden="true" size={17} strokeWidth={2.4} />
-    </button>
-    <button
-      className="mobile-editor-tool-button"
-      type="button"
-      aria-label="无序列表"
-      title="无序列表"
-      aria-pressed={bulletListActive}
-      disabled={disabled}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onToggleBulletList}
-    >
-      <List aria-hidden="true" size={18} strokeWidth={2.2} />
-    </button>
-    <button
-      className="mobile-editor-tool-button"
-      type="button"
-      aria-label="引用"
-      title="引用"
-      aria-pressed={blockquoteActive}
-      disabled={disabled}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onToggleBlockquote}
-    >
-      <Quote aria-hidden="true" size={17} strokeWidth={2.2} />
-    </button>
-    <button
-      className="mobile-editor-tool-button"
-      type="button"
-      aria-label="分割线"
-      title="分割线"
-      disabled={disabled}
-      onPointerDown={(event) => event.preventDefault()}
-      onClick={onSetHorizontalRule}
-    >
-      <Minus aria-hidden="true" size={18} strokeWidth={2.4} />
-    </button>
-  </div>
-);
+}) => {
+  const icons: Record<MobileEditorToolbarActionId, ReactNode> = {
+    image: <ImagePlus aria-hidden="true" size={18} strokeWidth={2} />,
+    bold: <Bold aria-hidden="true" size={17} strokeWidth={2.4} />,
+    bulletList: <List aria-hidden="true" size={18} strokeWidth={2.2} />,
+    blockquote: <Quote aria-hidden="true" size={17} strokeWidth={2.2} />,
+    horizontalRule: <Minus aria-hidden="true" size={18} strokeWidth={2.4} />,
+  };
+  const handlers: Record<MobileEditorToolbarActionId, () => void> = {
+    image: onPickImage,
+    bold: onToggleBold,
+    bulletList: onToggleBulletList,
+    blockquote: onToggleBlockquote,
+    horizontalRule: onSetHorizontalRule,
+  };
+  const activeStates: Partial<Record<MobileEditorToolbarActionId, boolean>> = {
+    bold: boldActive,
+    bulletList: bulletListActive,
+    blockquote: blockquoteActive,
+  };
+
+  return (
+    <div className="mobile-editor-tool-row">
+      {MOBILE_EDITOR_TOOLBAR_ACTIONS.map(({ id }) => {
+        const label = getMobileEditorToolbarActionLabel(id, "zh-CN");
+
+        return (
+          <button
+            key={id}
+            className="mobile-editor-tool-button"
+            type="button"
+            aria-label={label}
+            title={label}
+            aria-pressed={activeStates[id]}
+            disabled={disabled}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={handlers[id]}
+          >
+            {icons[id]}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 export const MobileEditorNotebookButton = ({
   label,

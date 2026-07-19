@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 !.env.local.example
+!.env.android.local.example
 
 node_modules/
 dist/
@@ -15,3 +16,9 @@ coverage/
 wrangler.local.toml
 
 *.log
+
+# Android signing material must never be committed.
+*.jks
+*.keystore
+*.p12
+*-key.pem

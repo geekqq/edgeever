@@ -10,49 +10,28 @@ EdgeEver 是一个开源、自托管、Cloudflare-native 的现代笔记工作�
 
 ## 为什么做 EdgeEver
 
-很多长期使用印象笔记的人需要的只是一个可靠、开放、响应足够快的个人知识库。但现在的印象笔记越来越臃肿，商业化和附加功能不断增加，性能和内存占用也越来越难让人满意。
+很多长期使用**印象笔记**的用户，核心需求只是一个**可靠、开放、响应足够快**的个人知识库。然而，当下的主流方案都各有痛点：
 
-更麻烦的是数据开放性：笔记很难直接导出为开放格式，迁移常常依赖可能失效的第三方插件；国内版不原生支持 MCP，国际版价格又不适合很多个人用户。
+* **印象笔记**：功能日益臃肿，商业化广告和附加功能不断增加，性能与内存占用差强人意；且数据封闭，很难直接导出，国内版更不支持 MCP 联动；国际版虽支持 MCP，但入门套餐每月需 15 美元且有严格的额度限制。
+* **Obsidian**：虽然足够开放，但对于“随时随地随手记”的轻量场景来说太重了；且官方同步收费（每月 5 美元），第三方同步方案门槛和折腾成本较高。
+* **Memos 等轻量笔记**：虽然足够开放好用，但其流式布局与经典印象笔记式的“三栏工作流”有着天然的交互差异。
 
-Memos 等轻量笔记产品更开放，但交互体验和经典印象笔记式三栏工作流仍有明显距离。
-EdgeEver 想填补这个空白：保留熟悉的笔记体验，同时提供开放数据、REST API、MCP 和零成本自托管部署。
+**EdgeEver 旨在填补这个空白**：它保留了用户最熟悉的经典三栏笔记体验，同时提供完全开放的数据模型、REST API、MCP 原生支持以及零成本自托管部署。
+
+> 💡 **我目前研究的最佳实践是：**
+> 用 **EdgeEver** 随手快速记录灵感与备忘，作为灵感的“原料库”；当需要进行结构化整理时，再通过 **MCP** 联动 AI，将内容自动同步并整合到 **Obsidian**、**Notion Database** 或**飞书多维表格**中。
 
 ## 在线演示
 
 - Demo 地址：[https://demo.edgeever.org](https://demo.edgeever.org)
 
-公开演示环境会每天自动重置并恢复示例笔记，请不要保存私密内容。
-
-## 部署
-
-### 通过AI Agent 一句话部署
- 
-将下方提示词复制给你的 AI 助手（Claude Code、Codex、Antigravity、Cursor、Trae 等），它会自动完成安装
-
-**建议：** 开始部署前，请先为 AI Agent 配置 GitHub 和 Cloudflare 的 MCP、插件或其他可用集成，以便 Agent 完成仓库 Fork、Cloudflare 资源创建与应用部署。
-
-```text
-请按以下流程操作：
-1. Fork EdgeEver 上游仓库：https://github.com/tianma-if/edgeever
-2. 使用 Fork 后的仓库，将 EdgeEver 安装并部署到 Cloudflare。
-3. 为 Fork 仓库配置从上游仓库同步更新的机制，使其能够定期或按需获取上游仓库的最新代码与产品特性。
-```
-
-Agent 应优先按 [AI Agent Cloudflare Deployment](docs/agent-deploy-cloudflare.md) 执行 
-
-> 常见踩坑：Cloudflare 的 R2、D1 和 Worker 即使使用免费额度，在开通或使用过程中也可能要求绑定一张 Visa 卡。国内用户可以考虑办理招商银行多币种卡，拿到 Visa 卡后绑定到 Cloudflare 账号即可。
-
-### 手动部署
-
-关于手动安装和更新的详细步骤，请参考 [Cloudflare 手动部署指南](docs/manual-deploy.zh-CN.md)。
-
-推荐优先使用自动化辅助命令。如果选择完全手动创建 Cloudflare 资源，必须先在 `.env.local` 中完成 D1 ID、R2 bucket、密码 hash 和 400 天会话期限等配置，再执行 `bun run deploy`。
-
+公开演示环境会在每周一凌晨 1:00（北京时间）自动重置并恢复示例笔记，请不要保存私密内容。
 
 ## 功能
 
 - 零服务器，零运维，终身完全免费：基于 Cloudflare 无服务器架构与免费级配额，短笔记可达 15 万条，200KB 图片约可存放 5 万张，彻底免去云服务器租用和维护成本。
-- 数据完全开放：笔记内容存放在基于标准 SQLite 的 Cloudflare D1 中，可通过 REST API、MCP 和 CLI 按需读取、迁移或导出，不用担心被单一笔记产品绑定。
+- 数据完全开放：笔记内容存放在基于标准 SQLite 的 Cloudflare D1 中，可通过 REST API、MCP 和 CLI 按需读取与管理，不用担心被单一笔记产品绑定。
+- EdgeEver ZIP 导入与导出：同一份档案既包含便于直接阅读和迁移的 Markdown、Front Matter、嵌套笔记本结构与相对路径附件，也包含用于 EdgeEver 实例间完整恢复的版本化结构数据和历史版本。
 - AI Agent 友好：原生支持 MCP，可让 Codex、Claude Code、Antigravity 等工具读取、整理和维护笔记，并可借助 MCP 与 Notion Database、飞书多维表格进行联动。
 - 多端无缝同步且不限设备数：基于自建的 API 个人独享数据，摆脱商业笔记平台对登录设备数量的强制限制（如免费版只允许登录 2 台设备等），支持 PC、平板与手机无缝多端同步。
 - 三栏布局：笔记本树、笔记列表、主编辑区。
@@ -64,8 +43,44 @@ Agent 应优先按 [AI Agent Cloudflare Deployment](docs/agent-deploy-cloudflare
 - 多选合并笔记。
 - 多选移动笔记，笔记本支持拖拽排序和调整层级。
 - 已有笔记支持离线编辑草稿和本地同步队列。
-- 单用户登录，密码使用 PBKDF2-SHA256 hash。
-- Chrome/Edge 网页裁剪插件已开发完成，待上架。
+- 支持单实例多账号，每个账号拥有隔离的个人笔记空间；管理员可创建、停用和重置成员账号，密码使用 PBKDF2-SHA256 hash。
+- Chrome/Edge 网页裁剪插件已开发完成，上架审核中。
+
+## 部署
+
+### 通过AI Agent 一句话部署
+ 
+将下方提示词复制给你的 AI 助手（Claude Code、Codex、OpenClaw、Antigravity、Cursor、Trae 等），它会完成首次安装并配置后续自动更新。
+
+**建议：** 开始部署前，请先为 AI Agent 配置 GitHub 和 Cloudflare 的 MCP、插件或其他可用集成，以便 Agent 完成仓库 Fork、Cloudflare 资源创建、应用部署和 Workers Builds 自动部署连接。
+
+```text
+请按以下流程操作：
+1. Fork EdgeEver 上游仓库：https://github.com/tianma-if/edgeever
+2. 使用 Fork 后的仓库创建 Cloudflare 资源并完成 EdgeEver 首次部署。
+3. 运行 `bun run deploy:builds:setup`，通过 Cloudflare Workers Builds 将已部署的 Worker 连接到 Fork 仓库的 `main` 分支；如需 token，使用 User API Token，不要使用 Account API Token。
+4. 后续 GitHub Sync fork 或任何推送到 `main` 的更新，都必须自动构建、执行 D1 migration 并发布该实例。
+```
+
+Agent 应优先按 [AI Agent Cloudflare Deployment](docs/agent-deploy-cloudflare.md) 执行。首次部署后，请参阅 [Cloudflare Workers Builds 自动部署](docs/cloudflare-workers-builds.zh-CN.md)；官方实例和 Fork 使用同一套发布流程。
+
+> 常见踩坑：Cloudflare 的 R2、D1 和 Worker 即使使用免费额度，在开通或使用过程中也可能要求绑定一张 Visa 卡。国内用户可以考虑办理招商银行多币种卡，拿到 Visa 卡后绑定到 Cloudflare 账号即可。
+
+<p align="center">或</p>
+
+### 手动部署
+
+关于首次手动安装、Cloudflare 资源配置与紧急修复，请参考 [Cloudflare 手动部署指南](docs/manual-deploy.zh-CN.md)。首次部署后，请配置 Cloudflare Workers Builds；之后通过 GitHub **Sync fork** 或推送 `main` 自动更新。
+
+推荐优先使用自动化辅助命令。配置模板使用 `admin` / `admin123` 作为初始登录账号密码，之后可在个人设置中修改密码。如果选择完全手动创建 Cloudflare 资源，必须先在 `.env.local` 中完成 D1 ID、R2 bucket 和 400 天会话期限等配置，再执行 `bun run deploy`。
+
+
+## 多账号登录
+
+部署完成后，单个实例支持多账号登录。
+
+实例管理员可以在 **个人中心** -> **账号管理** 中创建、停用成员账号或重置密码。每个成员拥有完全隔离的个人空间，包括笔记本、笔记、附件、回收站、导入导出和 MCP Token 等。
+
 
 ## PWA 安装说明
 
@@ -77,13 +92,13 @@ PC 端请使用 Chrome/Edge 打开站点，点击地址栏右侧的“安装”�
 
 ## Chrome/Edge 网页裁剪插件
 
-Chrome/Edge 网页裁剪插件已开发完成，待上架。
+Chrome/Edge 网页裁剪插件已开发完成，上架审核中。
 
 ## 关于客户端
 
-原生客户端已纳入 EdgeEver 的开发计划。移动端 App 计划基于 React Native 构建，桌面端 App 计划基于 Tauri 构建。
+APP端初版已开发完成，上架审核中。
 
-目标是让用户可以将这些客户端连接到自己的自托管 EdgeEver 实例，在继续保持 Cloudflare 后端、开放 API 和用户自有数据模型的同时，获得更顺滑的移动端与桌面端原生体验。
+桌面端 App 仍在规划中，计划基于 Tauri 构建。
 
 ## 技术栈
 
@@ -91,6 +106,7 @@ Chrome/Edge 网页裁剪插件已开发完成，待上架。
 - 官网：Astro 静态站点，位于 `apps/site`，可独立构建并部署到 Cloudflare Pages。
 - 前端：Vite、React、React Router、TanStack Query，UI 基于 Tailwind CSS、shadcn/ui、Radix UI。
 - 编辑器：TipTap / ProseMirror，支持 Markdown；PWA 使用 vite-plugin-pwa、Workbox、Dexie。
+- 移动 App：Expo + React Native，采用 SQLite 本地存储与增量同步。
 - 网页裁剪：Manifest V3、Mozilla Readability、Turndown，支持 Chrome 与 Microsoft Edge。
 - 后端：Cloudflare Workers、Hono、Zod、D1、R2，提供 REST API、OpenAPI 与 Remote MCP。
 
@@ -108,10 +124,16 @@ bun install
 bun run db:migrate:local
 ```
 
-启动本地开发：
+启动默认开发环境。它会先应用本地迁移，并在首次启动时使用仓库内固定的 Demo 种子初始化本地 D1/R2；后续重启会保留本地修改，且不会连接任何远程实例。
 
 ```sh
 bun run dev
+```
+
+如需明确连接已配置的远程实例，必须显式指定实例名：
+
+```sh
+EDGE_EVER_INSTANCE=<实例名> bun run dev:remote
 ```
 
 常用检查：
@@ -146,6 +168,8 @@ content_json      TipTap/ProseMirror 文档，编辑器权威格式
 content_markdown  API、Agent、导入导出使用
 content_text      搜索、摘要和索引使用
 ```
+
+请打开 **我的** -> **导入与导出**，导出或导入 EdgeEver ZIP。压缩包中的 `notes/` 目录可直接作为 Markdown 阅读和迁移，结构化数据则用于在 EdgeEver 实例之间完整恢复；导入时目标实例中的无关数据会保留，相同 EdgeEver ID 的内容会被覆盖。
 
 ## API 文档
 

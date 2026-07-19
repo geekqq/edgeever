@@ -18,6 +18,86 @@ body {
 
 .popup-shell {
   width: 320px;
+  padding: 20px;
+  background: #f8fafc;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.popup-header img {
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 12%);
+}
+
+.popup-header h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.popup-header .hint {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.popup-description {
+  margin: 18px 0 14px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.save-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  box-shadow: 0 1px 2px rgb(15 118 110 / 18%);
+}
+
+.save-button svg,
+.settings-button svg {
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.popup-shell .status:empty {
+  display: none;
+}
+
+.popup-shell .status {
+  min-height: 0;
+  margin: 12px 0 0;
+}
+
+.settings-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 16px;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0;
+  background: transparent;
+  color: #0f766e;
+  padding: 15px 0 0;
+  font-size: 13px;
+}
+
+.settings-button:hover {
+  background: transparent;
+  color: #115e59;
 }
 
 .options-shell {
@@ -115,4 +195,13 @@ button:disabled {
 
 .status[data-kind="success"] {
   color: #047857;
+}
+
+.privacy-link {
+  margin: 20px 0 0;
+  font-size: 12px;
+}
+
+.privacy-link a {
+  color: #0f766e;
 }

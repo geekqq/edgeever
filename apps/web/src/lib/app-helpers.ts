@@ -1,5 +1,6 @@
 import type { MemoSummary, Notebook, TiptapDoc } from "@edgeever/shared";
 import { DEFAULT_MEMO_TITLE } from "@edgeever/shared";
+import { getMobileNotebookSearchVisibleIds } from "@edgeever/shared/mobile-ui";
 import { buildNotebookTree, type NotebookNode, type NotebookNodeComparator } from "./utils";
 import * as React from "react";
 import type { ReactNode } from "react";
@@ -117,30 +118,24 @@ export const getExpandableNotebookIds = (nodes: NotebookNode[]) => {
 };
 
 export const filterNotebookTree = (nodes: NotebookNode[], search: string): NotebookNode[] => {
-  const query = search.trim().toLocaleLowerCase("zh-CN");
-
-  if (!query) {
+  if (!search.trim()) {
     return nodes;
   }
 
-  const walk = (items: NotebookNode[]): NotebookNode[] => {
-    const filteredNodes: NotebookNode[] = [];
-
+  const notebooks: Notebook[] = [];
+  const collectNotebooks = (items: NotebookNode[]) => {
     for (const node of items) {
-      const children = walk(node.children);
-      const matched = node.name.toLocaleLowerCase("zh-CN").includes(query);
-
-      if (matched) {
-        filteredNodes.push({ ...node, children: node.children });
-        continue;
-      }
-
-      if (children.length > 0) {
-        filteredNodes.push({ ...node, children });
-      }
+      notebooks.push(node);
+      collectNotebooks(node.children);
     }
+  };
+  collectNotebooks(nodes);
+  const visibleIds = getMobileNotebookSearchVisibleIds(notebooks, search);
 
-    return filteredNodes;
+  const walk = (items: NotebookNode[]): NotebookNode[] => {
+    return items
+      .filter((node) => visibleIds.has(node.id))
+      .map((node) => ({ ...node, children: walk(node.children) }));
   };
 
   return walk(nodes);
@@ -506,18 +501,6 @@ export const getNotebookMoveOptions = (notebooks: Notebook[]) => {
 
   walk(buildNotebookTree(notebooks), 0);
   return options;
-};
-
-export const toggleMemoSelection = (current: Set<string>, memoId: string) => {
-  const next = new Set(current);
-
-  if (next.has(memoId)) {
-    next.delete(memoId);
-  } else {
-    next.add(memoId);
-  }
-
-  return next;
 };
 
 export const hasMemoDragData = (dataTransfer: DataTransfer) => Array.from(dataTransfer.types).includes(MEMO_DRAG_MIME);

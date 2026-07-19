@@ -59,7 +59,7 @@ import { docToMarkdown, markdownToDoc, type Notebook, type MemoDetail, type Memo
 import { codeBlockLowlight } from "@/lib/code-block";
 import { compressImageForUpload } from "@/lib/image-compression";
 import { localDb, type MemoUpdateSyncPayload } from "@/lib/local-db";
-import { getMemoUpdateQueueId, queueMemoUpdate, shouldQueueMemoSaveError } from "@/lib/sync-queue";
+import { getMemoUpdateQueueId, isMemoUpdateAlreadyApplied, queueMemoUpdate, shouldQueueMemoSaveError } from "@/lib/sync-queue";
 import {
   getNotebookMoveOptions,
   DEFAULT_MEMO_TITLE,
@@ -535,7 +535,7 @@ const MobileNativeEditorPane = ({
 
   const persistDraft = useCallback(() => {
     const currentMemo = memoRef.current;
-    if (!currentMemo || currentMemo.isDeleted) {
+    if (!currentMemo || currentMemo.isDeleted || editingMemoIdRef.current !== currentMemo.id) {
       return;
     }
 
@@ -567,7 +567,14 @@ const MobileNativeEditorPane = ({
     const snapshot = currentSnapshot();
 
     const editSession = editSessionRef.current;
-    if (!currentMemo || currentMemo.isDeleted || !snapshot || savingRef.current || !editSession) {
+    if (
+      !currentMemo ||
+      currentMemo.isDeleted ||
+      editingMemoIdRef.current !== currentMemo.id ||
+      !snapshot ||
+      savingRef.current ||
+      !editSession
+    ) {
       return false;
     }
 
@@ -650,7 +657,7 @@ const MobileNativeEditorPane = ({
 
   const markDirty = useCallback(() => {
     const currentMemo = memoRef.current;
-    if (hydratingRef.current || currentMemo?.isDeleted) {
+    if (hydratingRef.current || currentMemo?.isDeleted || !currentMemo || editingMemoIdRef.current !== currentMemo.id) {
       return;
     }
 
@@ -717,7 +724,7 @@ const MobileNativeEditorPane = ({
     }
 
     void (async () => {
-      const [draft, queuedUpdate, editSessionResponse] = memo.isDeleted
+      let [draft, queuedUpdate, editSessionResponse] = memo.isDeleted
         ? [null, null, null]
         : await Promise.all([
             localDb.drafts.get(memo.id),
@@ -727,6 +734,15 @@ const MobileNativeEditorPane = ({
 
       if (cancelled) {
         return;
+      }
+
+      if (queuedUpdate && isMemoUpdateAlreadyApplied(memo, queuedUpdate)) {
+        await Promise.all([
+          localDb.syncQueue.delete(queuedUpdate.id),
+          localDb.drafts.delete(memo.id),
+        ]);
+        draft = null;
+        queuedUpdate = undefined;
       }
 
       const draftUpdatedAt = draft ? Date.parse(draft.updatedAt) : 0;
@@ -1538,7 +1554,12 @@ const RichEditorPane = ({
       const currentMemo = memoRef.current;
       const currentEditor = editorRef.current;
 
-      if (!currentMemo || currentMemo.isDeleted || (!useMobilePlainTextEditor && !isEditorReady(currentEditor))) {
+      if (
+        !currentMemo ||
+        currentMemo.isDeleted ||
+        hydratedMemoIdRef.current !== currentMemo.id ||
+        (!useMobilePlainTextEditor && !isEditorReady(currentEditor))
+      ) {
         return;
       }
 
@@ -1640,7 +1661,7 @@ const RichEditorPane = ({
     }
 
     void (async () => {
-      const [draft, queuedUpdate, editSessionResponse] = memo.isDeleted
+      let [draft, queuedUpdate, editSessionResponse] = memo.isDeleted
         ? [null, null, null]
         : await Promise.all([
             localDb.drafts.get(memo.id),
@@ -1650,6 +1671,15 @@ const RichEditorPane = ({
 
       if (cancelled) {
         return;
+      }
+
+      if (queuedUpdate && isMemoUpdateAlreadyApplied(memo, queuedUpdate)) {
+        await Promise.all([
+          localDb.syncQueue.delete(queuedUpdate.id),
+          localDb.drafts.delete(memo.id),
+        ]);
+        draft = null;
+        queuedUpdate = undefined;
       }
 
       const draftUpdatedAt = draft ? Date.parse(draft.updatedAt) : 0;
@@ -2642,7 +2672,7 @@ const RichEditorPane = ({
               spellCheck
               data-edgeever-mobile-editor="plain-textarea"
               aria-label="笔记正文"
-              className="block min-h-[60dvh] w-full resize-none border border-slate-200 bg-white px-4 py-3 pr-32 text-base leading-7 text-slate-900 outline-none placeholder:text-slate-400 sm:px-7"
+              className="block min-h-[60dvh] w-full resize-none border border-slate-200 bg-white px-4 py-3 pr-32 text-base leading-7 text-slate-950 outline-none placeholder:text-slate-400 sm:px-7"
               placeholder="开始记录..."
               style={{ WebkitUserSelect: "text", userSelect: "text", caretColor: "auto" }}
             />
