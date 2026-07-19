@@ -32,10 +32,9 @@ jobs:
 
           git merge --no-commit --no-ff upstream/main || true
 
-          if git diff --name-only --diff-filter=U | grep -qx '.github/workflows/deploy.yml'; then
-            git checkout --ours .github/workflows/deploy.yml
-            git add .github/workflows/deploy.yml
-          fi
+          # Keep the fork's own workflow files so the GitHub App token does not
+          # need workflow-write permission, and so fork-specific deploy jobs stay intact.
+          git restore --source=HEAD --staged --worktree .github/workflows
 
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo 'Unresolved merge conflicts remain:'
