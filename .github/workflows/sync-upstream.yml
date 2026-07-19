@@ -29,5 +29,24 @@ jobs:
           git remote add upstream https://github.com/tianma-if/edgeever.git
           git fetch upstream main
           git checkout main
-          git merge --no-edit upstream/main
+
+          git merge --no-commit --no-ff upstream/main || true
+
+          if git diff --name-only --diff-filter=U | grep -qx '.github/workflows/deploy.yml'; then
+            git checkout --ours .github/workflows/deploy.yml
+            git add .github/workflows/deploy.yml
+          fi
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo 'Unresolved merge conflicts remain:'
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          if git diff --cached --quiet; then
+            echo 'Already up to date.'
+            exit 0
+          fi
+
+          git commit --no-edit
           git push origin main
