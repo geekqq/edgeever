@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AppState, type AppStateStatus } from "react-native";
+import Constants from "expo-constants";
+import { AppState, Linking, Platform, type AppStateStatus } from "react-native";
 import * as Updates from "expo-updates";
 import { Alert } from "../components/LocalizedText";
 import { useMobileLocale } from "./mobile-locale";
+import { findNewerMobileRelease, GITHUB_LATEST_RELEASE_URL, GOOGLE_PLAY_URL, type MobileRelease } from "./mobile-release";
 
 const FOREGROUND_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -27,6 +29,30 @@ export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
   const lastAutomaticCheckRef = useRef(0);
   const isSupported = !__DEV__ && Updates.isEnabled;
   const english = resolvedLocale === "en-US";
+  const installedVersion = Updates.runtimeVersion ?? Constants.expoConfig?.version ?? null;
+
+  const openUpdateUrl = useCallback((url: string) => {
+    void Linking.openURL(url).catch(() => {
+      Alert.alert(
+        english ? "Unable to open update page" : "无法打开更新页面",
+        english ? "Open the app store or GitHub Releases and try again." : "请手动打开应用商店或 GitHub Releases 后重试。"
+      );
+    });
+  }, [english]);
+
+  const showInstallableUpdatePrompt = useCallback((release: MobileRelease) => {
+    Alert.alert(
+      english ? "New app version available" : "发现新版本",
+      english
+        ? `Version v${release.version} is available. This update includes an installable app package and cannot be applied as an in-app update.`
+        : `发现可安装的新版本 v${release.version}。此类更新包含新的应用安装包，无法通过应用内热更新完成。`,
+      [
+        { text: english ? "Later" : "稍后", style: "cancel" },
+        { text: "Google Play", onPress: () => openUpdateUrl(GOOGLE_PLAY_URL) },
+        { text: "GitHub", onPress: () => openUpdateUrl(GITHUB_LATEST_RELEASE_URL) },
+      ]
+    );
+  }, [english, openUpdateUrl]);
 
   const restart = useCallback(async () => {
     try {
@@ -71,17 +97,44 @@ export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const check = (async () => {
+      let installableReleaseCheckFailed = false;
       try {
         setStatus("checking");
+
+        if (userInitiated && Platform.OS === "android") {
+          try {
+            if (!installedVersion) {
+              throw new Error("Installed app version is unavailable");
+            }
+            const release = await findNewerMobileRelease(installedVersion);
+            if (release) {
+              setStatus("idle");
+              showInstallableUpdatePrompt(release);
+              return;
+            }
+          } catch {
+            installableReleaseCheckFailed = true;
+          }
+        }
+
         const result = await Updates.checkForUpdateAsync();
 
         if (!result.isAvailable) {
           setStatus("idle");
           if (userInitiated) {
-            Alert.alert(
-              english ? "You're up to date" : "已是最新版本",
-              english ? "No new update is available for this version." : "当前版本暂无可用更新。"
-            );
+            if (installableReleaseCheckFailed) {
+              Alert.alert(
+                english ? "Unable to fully check for updates" : "无法完成更新检查",
+                english
+                  ? "No compatible in-app update was found, but the latest installable app version could not be verified. Check your connection and try again."
+                  : "未发现兼容的应用内热更新，但无法确认最新安装包版本。请检查网络连接后重试。"
+              );
+            } else {
+              Alert.alert(
+                english ? "You're up to date" : "已是最新版本",
+                english ? "No newer app package or compatible in-app update is available." : "当前没有更新的安装包或兼容的应用内热更新。"
+              );
+            }
           }
           return;
         }
@@ -107,7 +160,7 @@ export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
       activeCheckRef.current = null;
     });
     return check;
-  }, [english, isSupported, showRestartPrompt]);
+  }, [english, installedVersion, isSupported, showInstallableUpdatePrompt, showRestartPrompt]);
 
   useEffect(() => {
     const attemptAutomaticCheck = () => {

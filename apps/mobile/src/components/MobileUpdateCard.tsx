@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import * as Updates from "expo-updates";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { RefreshCw } from "./icons";
 import { Pressable, Text } from "./LocalizedText";
@@ -27,11 +28,11 @@ export const MobileUpdateCard = () => {
         <Text style={styles.title}>{english ? "App updates" : "应用更新"}</Text>
         <Text style={styles.description}>
           {english
-            ? "EdgeEver checks for compatible updates when it starts and returns to the foreground."
-            : "EdgeEver 会在启动和回到前台时自动检查兼容更新。"}
+            ? "EdgeEver automatically checks for compatible in-app updates. Manual checks also look for newer installable versions."
+            : "EdgeEver 会自动检查兼容的应用内热更新；手动检查还会查找更新的安装包版本。"}
         </Text>
         <Text style={styles.version}>
-          {english ? "Current version" : "当前版本"}: v{Constants.expoConfig?.version ?? "unknown"}
+          {english ? "Current version" : "当前版本"}: v{Updates.runtimeVersion ?? Constants.expoConfig?.version ?? "unknown"}
         </Text>
       </View>
       <Pressable

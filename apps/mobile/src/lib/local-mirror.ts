@@ -1,10 +1,11 @@
 import type { createEdgeEverClient, ListMemosResponse, MemoFilterMode, MemoSortMode } from "@edgeever/client";
 import type { MemoDetail, MemoSummary, Notebook } from "@edgeever/shared";
 import * as SQLite from "expo-sqlite";
-import { hasMobileSyncCursorRewound, hasMobileSyncIdentityChanged, isMobileSyncMetadataInitialized } from "./mobile-sync-protocol";
+import { hasMobileSyncCursorRewound, hasMobileSyncIdentityChanged, isMobileSyncMetadataInitialized, splitMobileBootstrapWriteBatches } from "./mobile-sync-protocol";
 
 const DATABASE_NAME = "edgeever-mobile.db";
 const BOOTSTRAP_PAGE_SIZE = 200;
+const BOOTSTRAP_WRITE_BATCH_SIZE = 50;
 const CHANGE_PAGE_SIZE = 200;
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -25,6 +26,15 @@ export type LocalMemoListParams = {
   filter?: MemoFilterMode;
   limit?: number;
   offset?: number;
+};
+
+export type MobileBootstrapProgress = {
+  loadedCount: number;
+  totalCount: number;
+};
+
+type MobileLocalMirrorSyncOptions = {
+  onBootstrapProgress?: (progress: MobileBootstrapProgress) => void | Promise<void>;
 };
 
 export const createMobileDataScope = (baseUrl: string, userId?: string | null) =>
@@ -170,13 +180,14 @@ export const replaceLocalMemoId = async (scope: string, temporaryId: string, mem
 
 export const syncMobileLocalMirror = async (
   client: ReturnType<typeof createEdgeEverClient>,
-  scope: string
+  scope: string,
+  options: MobileLocalMirrorSyncOptions = {}
 ) => {
   const existing = syncPromises.get(scope);
   if (existing) {
     return existing;
   }
-  const operation = performMobileLocalMirrorSync(client, scope).finally(() => {
+  const operation = performMobileLocalMirrorSync(client, scope, options).finally(() => {
     syncPromises.delete(scope);
   });
   syncPromises.set(scope, operation);
@@ -185,7 +196,8 @@ export const syncMobileLocalMirror = async (
 
 const performMobileLocalMirrorSync = async (
   client: ReturnType<typeof createEdgeEverClient>,
-  scope: string
+  scope: string,
+  options: MobileLocalMirrorSyncOptions = {}
 ) => {
   const db = await getDatabase();
   const cursorRow = await db.getFirstAsync<CursorRow>(
@@ -201,6 +213,7 @@ const performMobileLocalMirrorSync = async (
 
   if (cursor === null || !Number.isFinite(cursor) || syncIdentity === null) {
     let afterId: string | null = null;
+    let loadedCount = 0;
     let snapshotCursor = 0;
     let snapshotIdentity = "legacy";
     await db.withExclusiveTransactionAsync(async (tx) => {
@@ -216,14 +229,21 @@ const performMobileLocalMirrorSync = async (
         snapshotCursor = page.snapshotCursor;
         snapshotIdentity = page.syncIdentity || "legacy";
       }
-      await db.withExclusiveTransactionAsync(async (tx) => {
-        for (const notebook of page.notebooks) {
-          await upsertNotebook(tx, scope, notebook);
-        }
-        for (const memo of page.memos) {
-          await upsertMemo(tx, scope, memo);
-        }
-      });
+      const writeBatches = splitMobileBootstrapWriteBatches(page.memos, BOOTSTRAP_WRITE_BATCH_SIZE);
+      for (const [batchIndex, memos] of writeBatches.entries()) {
+        await db.withExclusiveTransactionAsync(async (tx) => {
+          if (batchIndex === 0) {
+            for (const notebook of page.notebooks) {
+              await upsertNotebook(tx, scope, notebook);
+            }
+          }
+          for (const memo of memos) {
+            await upsertMemo(tx, scope, memo);
+          }
+        });
+        loadedCount += memos.length;
+        await options.onBootstrapProgress?.({ loadedCount, totalCount: page.totalCount });
+      }
       if (page.nextAfterId === null) {
         break;
       }
@@ -242,7 +262,7 @@ const performMobileLocalMirrorSync = async (
       // change sequence. Rebuild the mirror instead of treating the stale
       // local cursor as proof that no remote notes exist.
       await db.runAsync(`DELETE FROM mobile_sync_meta WHERE scope = ? AND key IN ('cursor', 'identity')`, scope);
-      return performMobileLocalMirrorSync(client, scope);
+      return performMobileLocalMirrorSync(client, scope, options);
     }
     await db.withExclusiveTransactionAsync(async (tx) => {
       for (const change of page.changes) {

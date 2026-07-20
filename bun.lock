@@ -71,7 +71,7 @@
     },
     "apps/extension": {
       "name": "@edgeever/extension",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@mozilla/readability": "^0.6.0",
         "turndown": "^7.2.4",
@@ -79,7 +79,7 @@
     },
     "apps/mobile": {
       "name": "@edgeever/mobile",
-      "version": "0.4.9",
+      "version": "0.4.17",
       "dependencies": {
         "@edgeever/client": "workspace:*",
         "@edgeever/shared": "workspace:*",
@@ -98,6 +98,7 @@
         "expo-clipboard": "~57.0.1",
         "expo-constants": "~57.0.6",
         "expo-document-picker": "~57.0.1",
+        "expo-file-system": "~57.0.1",
         "expo-image-manipulator": "~57.0.5",
         "expo-router": "latest",
         "expo-secure-store": "latest",
@@ -115,9 +116,11 @@
         "react-native-screens": "4.25.2",
         "react-native-svg": "15.15.4",
         "react-native-web": "~0.21.0",
+        "semver": "^7.8.5",
       },
       "devDependencies": {
         "@types/react": "latest",
+        "@types/semver": "^7.7.1",
         "babel-preset-expo": "latest",
         "gluestack-ui": "latest",
         "typescript": "6.0.3",
@@ -1157,6 +1160,8 @@
     "@types/resolve": ["@types/resolve@1.20.2", "", {}, "sha512-60BCwRFOZCQhDncwQdxxeOEEkbc5dIMccYLwbxsS4TUNeVECQ/pBJ0j09mrHOl/JJvpRPGwO9SvE4nR2Nb/a4Q=="],
 
     "@types/sax": ["@types/sax@1.2.7", "", { "dependencies": { "@types/node": "*" } }, "sha512-rO73L89PJxeYM3s3pPPjiPgVVcymqU490g0YO5n5By0k2Erzj6tay/4lr1CHAAU4JyOWd1rpQ8bCf6cZfHU96A=="],
+
+    "@types/semver": ["@types/semver@7.7.1", "", {}, "sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA=="],
 
     "@types/trusted-types": ["@types/trusted-types@2.0.7", "", {}, "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw=="],
 

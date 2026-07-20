@@ -34,7 +34,7 @@ Release 以上一个实际发布的正式 Release 为基线，审计完整提交
 
 验证失败时不得发布正式 Release。
 
-每个正式 Release 必须附带可安装的 Android APK。GitHub APK 默认仅构建 `arm64-v8a`；只有出现明确兼容需求时才额外提供其他 ABI，Play AAB 仍保留全部架构。若完整变更区间影响移动端代码、其共享依赖、原生配置或 APK 构建，则从本次发布提交重新构建生产签名 APK；否则可复用最近的兼容 APK，并在正文中注明来源 Release。发布前验证 APK 版本、签名、SHA-256 及下载可用性。
+每个正式 Release 必须附带可安装的 Android APK。APK 文件名统一使用 `edgeever-android-vX.Y.Z-<ABI>.apk`，例如 `edgeever-android-v0.4.14-arm64-v8a.apk`。GitHub APK 默认仅构建 `arm64-v8a`；只有出现明确兼容需求时才额外提供其他 ABI，Play AAB 仍保留全部架构。若完整变更区间影响移动端代码、其共享依赖、原生配置或 APK 构建，则从本次发布提交重新构建生产签名 APK；否则可复用最近的兼容 APK，并在正文中注明来源 Release。发布前验证 APK 版本、签名、SHA-256 及下载可用性。
 
 ## Cloudflare 自动部署约束
 

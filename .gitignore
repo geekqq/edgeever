@@ -21,4 +21,5 @@ wrangler.local.toml
 *.jks
 *.keystore
 *.p12
+credentials.json
 *-key.pem

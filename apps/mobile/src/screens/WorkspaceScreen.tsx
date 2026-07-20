@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient, type UseMutationResult } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
-import type { DocumentPickerAsset } from "expo-document-picker";
+import { File as ExpoFile } from "expo-file-system";
 import type { MemoFilterMode, MemoSortMode } from "@edgeever/client";
 import {
   Archive,
@@ -28,6 +28,7 @@ import {
   List,
   LogOut,
   Merge,
+  MessageSquare,
   Moon,
   MoreHorizontal,
   MoreVertical,
@@ -78,7 +79,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Alert, Pressable, Text, TextInput } from "../components/LocalizedText";
 import Markdown, { type RenderRules } from "react-native-markdown-display";
 import { SvgXml } from "react-native-svg";
-import { buildRevisionDiffRows, createExcerpt, docToMarkdown, docToText, getNotebookDescendantIds, markdownToDoc, type ApiToken, type AuthUser, type MemoDetail, type MemoRevision, type MemoSummary, type Notebook, type ResourceListItem, type RevisionDiffRow, type TagSummary, type TiptapDoc } from "@edgeever/shared";
+import { buildGitHubFeedbackUrl, buildRevisionDiffRows, createExcerpt, docToMarkdown, docToText, getNotebookDescendantIds, markdownToDoc, type ApiToken, type AuthUser, type MemoDetail, type MemoRevision, type MemoSummary, type Notebook, type ResourceListItem, type RevisionDiffRow, type TagSummary, type TiptapDoc } from "@edgeever/shared";
 import { MOBILE_UI_METRICS, getMobileCenteredScrollOffset, getMobileNotebookSearchVisibleIds, toggleMobileMemoFilterMode, toggleMobileMemoSelection } from "@edgeever/shared/mobile-ui";
 import { clearMobileMemoDraft, clearMobileNewMemoDraft, readMobileMemoDraft, readMobileNewMemoDraft, writeMobileMemoDraft, writeMobileNewMemoDraft, type MobileMemoDraft } from "../lib/mobile-drafts";
 import {
@@ -112,9 +113,11 @@ import {
   resolveLocalMemo,
   syncMobileLocalMirror,
   upsertLocalMemo,
+  type MobileBootstrapProgress,
 } from "../lib/local-mirror";
 import { AccountSecurityPanel } from "./AccountSecurityModal";
 import { beginEditorStartup, markStartup, recordEditorStartup } from "../lib/startup-performance";
+import { prepareUploadAsset } from "../lib/mobile-image-upload";
 import EditorRuntimePrewarm from "../components/EditorRuntimePrewarm";
 import { showEdgeEverKeyboard } from "../../modules/edgeever-keyboard";
 import LocalTiptapEditor, { type LocalTiptapEditorRef } from "../components/LocalTiptapEditor";
@@ -200,10 +203,6 @@ const MOBILE_LOCALE_OPTIONS: Array<{ label: string; value: MobileLocalePreferenc
   { label: "简体中文", value: "zh-CN" },
   { label: "English", value: "en-US" },
 ];
-const COMPRESSIBLE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/avif"]);
-const MAX_COMPRESSED_IMAGE_EDGE = 2560;
-const IMAGE_COMPRESSION_QUALITY = 0.82;
-
 type MobileView = "notes" | "settings";
 type SettingsTab = "general" | "users" | "ai" | "account";
 type MemoView = "notebook" | "trash";
@@ -259,6 +258,10 @@ export const WorkspaceScreen = () => {
   const [selectedMemoIds, setSelectedMemoIds] = useState<Set<string>>(() => new Set());
   const [selectionMoveOpen, setSelectionMoveOpen] = useState(false);
   const [selectionMoreOpen, setSelectionMoreOpen] = useState(false);
+  const [isInitialMirrorStatusPending, setIsInitialMirrorStatusPending] = useState(true);
+  const [initialMirrorSyncProgress, setInitialMirrorSyncProgress] = useState<MobileBootstrapProgress | null>(null);
+  const [initialMirrorSyncError, setInitialMirrorSyncError] = useState<unknown>(null);
+  const [mirrorSyncAttempt, setMirrorSyncAttempt] = useState(0);
   const autoSyncRunningRef = useRef(false);
   const autoSyncRequestedRef = useRef(false);
   const autoSyncRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -272,9 +275,6 @@ export const WorkspaceScreen = () => {
         throw new Error("Client is not ready");
       }
 
-      if (!(await isMobileLocalMirrorInitialized(dataScope))) {
-        await syncMobileLocalMirror(client, dataScope);
-      }
       return listLocalNotebooks(dataScope);
     },
     enabled: Boolean(client),
@@ -293,10 +293,6 @@ export const WorkspaceScreen = () => {
     queryFn: async ({ pageParam }) => {
       if (!client) {
         throw new Error("Client is not ready");
-      }
-
-      if (pageParam === 0 && !(await isMobileLocalMirrorInitialized(dataScope))) {
-        await syncMobileLocalMirror(client, dataScope);
       }
 
       return listLocalMemos(dataScope, {
@@ -960,17 +956,46 @@ export const WorkspaceScreen = () => {
     }
     let active = true;
     const syncMirror = async () => {
+      let isInitialSync = false;
+      let refreshedNotebooksDuringBootstrap = false;
       try {
-        await syncMobileLocalMirror(client, dataScope);
+        isInitialSync = !(await isMobileLocalMirrorInitialized(dataScope));
+        if (active) {
+          setIsInitialMirrorStatusPending(false);
+          setInitialMirrorSyncError(null);
+          setInitialMirrorSyncProgress(isInitialSync ? { loadedCount: 0, totalCount: 0 } : null);
+        }
+        await syncMobileLocalMirror(client, dataScope, {
+          onBootstrapProgress: isInitialSync ? async (progress) => {
+            if (!active) {
+              return;
+            }
+            setInitialMirrorSyncProgress(progress);
+            const invalidations = [
+              queryClient.invalidateQueries({ queryKey: ["mobile", "memos"] }),
+              queryClient.invalidateQueries({ queryKey: ["mobile", "search"] }),
+            ];
+            if (!refreshedNotebooksDuringBootstrap) {
+              refreshedNotebooksDuringBootstrap = true;
+              invalidations.push(queryClient.invalidateQueries({ queryKey: ["mobile", "notebooks"] }));
+            }
+            await Promise.all(invalidations);
+          } : undefined,
+        });
         if (active) {
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["mobile", "notebooks"] }),
             queryClient.invalidateQueries({ queryKey: ["mobile", "memos"] }),
             queryClient.invalidateQueries({ queryKey: ["mobile", "search"] }),
           ]);
+          setInitialMirrorSyncProgress(null);
         }
-      } catch {
-        // The local mirror remains readable while the device is offline.
+      } catch (error) {
+        if (active && isInitialSync) {
+          setInitialMirrorSyncProgress(null);
+          setInitialMirrorSyncError(error);
+        }
+        // An initialized local mirror remains readable while the device is offline.
       }
     };
     void syncMirror();
@@ -983,7 +1008,7 @@ export const WorkspaceScreen = () => {
       active = false;
       subscription.remove();
     };
-  }, [client, dataScope, queryClient]);
+  }, [client, dataScope, mirrorSyncAttempt, queryClient]);
 
   if (richEditingSession) {
     return <RichEditorModal
@@ -1003,7 +1028,8 @@ export const WorkspaceScreen = () => {
       {activeView === "notes" ? (
         <NotesView
           activeNotebook={activeNotebook}
-          isLoading={notebooksQuery.isLoading || (searchActive ? searchQuery.isLoading : memosQuery.isLoading)}
+          initialSyncProgress={initialMirrorSyncProgress}
+          isLoading={notebooksQuery.isLoading || (searchActive ? searchQuery.isLoading : memosQuery.isLoading) || (isInitialMirrorStatusPending && visibleMemos.length === 0)}
           isLoadingMore={searchActive ? searchQuery.isFetchingNextPage : memosQuery.isFetchingNextPage}
           isRefreshing={isRefreshing}
           memoFilterMode={memoFilterMode}
@@ -1036,8 +1062,13 @@ export const WorkspaceScreen = () => {
             : memosQuery.data?.pages[0]?.totalCount ?? memos.length}
           selectionMode={selectionMode}
           selectedMemoIds={selectedMemoIds}
-          error={notebooksQuery.error ?? (searchActive ? searchQuery.error : memosQuery.error)}
-          isError={notebooksQuery.isError || (searchActive ? searchQuery.isError : memosQuery.isError)}
+          error={initialMirrorSyncError ?? notebooksQuery.error ?? (searchActive ? searchQuery.error : memosQuery.error)}
+          isError={Boolean(initialMirrorSyncError) || notebooksQuery.isError || (searchActive ? searchQuery.isError : memosQuery.isError)}
+          onRetry={() => {
+            setIsInitialMirrorStatusPending(true);
+            setInitialMirrorSyncError(null);
+            setMirrorSyncAttempt((attempt) => attempt + 1);
+          }}
         />
       ) : null}
 
@@ -1233,6 +1264,7 @@ export const WorkspaceScreen = () => {
 const NotesView = ({
   activeNotebook,
   error,
+  initialSyncProgress,
   isError,
   isLoading,
   isLoadingMore,
@@ -1251,6 +1283,7 @@ const NotesView = ({
   onMemoPress,
   onLoadMore,
   onRefresh,
+  onRetry,
   onSearchTextChange,
   onSetMemoView,
   searchText,
@@ -1260,6 +1293,7 @@ const NotesView = ({
 }: {
   activeNotebook: Notebook | null;
   error: unknown;
+  initialSyncProgress: MobileBootstrapProgress | null;
   isError: boolean;
   isLoading: boolean;
   isLoadingMore: boolean;
@@ -1278,6 +1312,7 @@ const NotesView = ({
   onMemoPress: (memoId: string) => void;
   onLoadMore: () => void;
   onRefresh: () => void;
+  onRetry: () => void;
   onSearchTextChange: (value: string) => void;
   onSetMemoView: (memoView: MemoView) => void;
   searchText: string;
@@ -1403,6 +1438,7 @@ const NotesView = ({
       emptyDescription={searchActive ? "换个关键词再试" : memoFilterMode !== "all" ? "试试切换筛选条件，或调整搜索关键词。" : memoView === "trash" ? "删除的笔记会显示在这里。" : "先创建一条笔记，之后可以在这里快速预览、搜索和批量整理。"}
       emptyTitle={searchActive ? "没有找到匹配笔记" : memoFilterMode !== "all" ? "没有符合筛选的笔记" : memoView === "trash" ? "回收站为空" : "暂无笔记"}
       error={error}
+      initialSyncProgress={initialSyncProgress}
       isError={isError}
       isLoading={isLoading}
       isLoadingMore={isLoadingMore}
@@ -1413,7 +1449,7 @@ const NotesView = ({
       onMemoPress={onMemoPress}
       onLoadMore={onLoadMore}
       onRefresh={onRefresh}
-      onRetry={onRefresh}
+      onRetry={onRetry}
       selectionMode={selectionMode}
       selectedMemoIds={selectedMemoIds}
     />
@@ -1799,6 +1835,9 @@ const SettingsView = ({
       setLocalePickerOpen(true);
     });
   };
+  const openFeedback = () => {
+    void Linking.openURL(buildMobileFeedbackUrl(localePreference));
+  };
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -1899,16 +1938,30 @@ const SettingsView = ({
       </View>
       <ScrollView contentContainerStyle={styles.settingsScrollContent} style={styles.viewBody}>
         {activeTab === null ? (
-          <View style={styles.settingsMenu}>
-            {tabs.map((tab, index) => (
-              <Pressable key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.settingsMenuRow, index > 0 && styles.settingsMenuRowBorder]}>
+          <View style={styles.settingsDetailList}>
+            <View style={styles.settingsMenu}>
+              {tabs.map((tab, index) => (
+                <Pressable key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.settingsMenuRow, index > 0 && styles.settingsMenuRowBorder]}>
+                  <View style={styles.settingsMenuLabel}>
+                    <View style={styles.settingsMenuIcon}>{tab.icon}</View>
+                    <Text style={styles.settingsMenuText}>{tab.label}</Text>
+                  </View>
+                  <ChevronRight color="#94a3b8" size={17} />
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.settingsMenu}>
+              <Pressable accessibilityRole="link" onPress={openFeedback} style={styles.settingsMenuRow}>
                 <View style={styles.settingsMenuLabel}>
-                  <View style={styles.settingsMenuIcon}>{tab.icon}</View>
-                  <Text style={styles.settingsMenuText}>{tab.label}</Text>
+                  <View style={[styles.settingsMenuIcon, styles.settingsFeedbackIcon]}><MessageSquare color="#64748b" size={17} /></View>
+                  <View style={styles.settingsFeedbackCopy}>
+                    <Text style={styles.settingsMenuText}>意见反馈</Text>
+                    <Text style={styles.settingsLinkDescription}>报告问题或提出功能建议</Text>
+                  </View>
                 </View>
-                <ChevronRight color="#94a3b8" size={17} />
+                <ExternalLink color="#94a3b8" size={17} />
               </Pressable>
-            ))}
+            </View>
           </View>
         ) : renderContent()}
       </ScrollView>
@@ -2175,6 +2228,7 @@ const CreateMemoModal = ({
   };
 
   const pickAndUploadImage = async () => {
+    let uploadId: string | null = null;
     try {
       const DocumentPicker = await import("expo-document-picker");
       const result = await DocumentPicker.getDocumentAsync({
@@ -2184,21 +2238,27 @@ const CreateMemoModal = ({
       });
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) {
-        return null;
+        return;
       }
+      uploadId = createMobileImageUploadId();
+      const previewDataUrl = await createLocalImagePreviewDataUrl(asset);
+      editorRef.current?.beginImageUpload(uploadId, previewDataUrl);
       const memo = await materializeMemoForImage();
       setImageOperation("uploading");
       const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
       const form = new FormData();
-      form.append("file", uploadAsset as unknown as Blob);
+      form.append("file", new ExpoFile(uploadAsset.uri));
       const { resource } = await client!.uploadMemoResource(memo.id, form);
-      return {
-        alt: resource.filename || uploadAsset.name || "图片",
-        url: resource.url,
-      };
+      editorRef.current?.completeImageUpload(
+        uploadId,
+        resource.url,
+        resource.filename || uploadAsset.name || "图片"
+      );
     } catch (error) {
+      if (uploadId) {
+        editorRef.current?.cancelImageUpload(uploadId);
+      }
       Alert.alert("图片上传失败", error instanceof Error ? error.message : "请检查网络连接后重试");
-      return null;
     } finally {
       setImageOperation("idle");
     }
@@ -2987,17 +3047,8 @@ const SystemInfoCard = ({ embedded = false }: { embedded?: boolean }) => {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const localePreference = useMobileLocalePreference();
-  const resolvedLocale = getResolvedMobileLocale(localePreference);
   const copy = getMobileSystemInfoText(localePreference);
-  const infoItems = [
-    { label: copy.version, value: `v${MOBILE_APP_VERSION}` },
-    { label: copy.build, value: __DEV__ ? "development" : "production" },
-    { label: copy.platform, value: Platform.OS },
-    { label: copy.platformVersion, value: String(Platform.Version) },
-    { label: copy.language, value: localePreference === "system" ? `${resolvedLocale} (${copy.followSystem})` : resolvedLocale },
-    { label: copy.timeZone, value: Intl.DateTimeFormat().resolvedOptions().timeZone || copy.unknown },
-    { label: copy.installMode, value: formatExecutionEnvironment(Constants.executionEnvironment, localePreference) },
-  ];
+  const infoItems = getMobileSystemInfoItems(localePreference);
 
   const copySystemInfo = async () => {
     await Clipboard.setStringAsync(infoItems.map((item) => `${item.label}: ${item.value}`).join("\n"));
@@ -3134,7 +3185,7 @@ const ResourcesModal = ({
         setUploadProgress(`正在上传第 ${index + 1}/${assets.length} 个文件...`);
         const form = new FormData();
         const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
-        form.append("file", uploadAsset as unknown as Blob);
+        form.append("file", new ExpoFile(uploadAsset.uri));
 
         const { resource } = await client.uploadMemoResource(activeMemo.id, form);
         resources.push(resource);
@@ -4364,11 +4415,11 @@ const RichEditorModal = ({
 
   const pickAndUploadImage = async () => {
     if (!client || !memo || uploadingRef.current) {
-      return null;
+      return;
     }
     if (memo.id.startsWith("local:")) {
       Alert.alert("正在同步新笔记", "首次同步完成后即可上传本地图片；图片链接现在就可以直接粘贴到正文。");
-      return null;
+      return;
     }
     const DocumentPicker = await import("expo-document-picker");
     const result = await DocumentPicker.getDocumentAsync({
@@ -4378,24 +4429,28 @@ const RichEditorModal = ({
     });
     const asset = result.canceled ? null : result.assets[0];
     if (!asset) {
-      return null;
+      return;
     }
 
+    const uploadId = createMobileImageUploadId();
     uploadingRef.current = true;
     setUploading(true);
     setError(null);
     try {
+      const previewDataUrl = await createLocalImagePreviewDataUrl(asset);
+      editorRef.current?.beginImageUpload(uploadId, previewDataUrl);
       const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
       const form = new FormData();
-      form.append("file", uploadAsset as unknown as Blob);
+      form.append("file", new ExpoFile(uploadAsset.uri));
       const { resource } = await client.uploadMemoResource(memo.id, form);
-      return {
-        alt: resource.filename || uploadAsset.name || "图片",
-        url: resource.url,
-      };
+      editorRef.current?.completeImageUpload(
+        uploadId,
+        resource.url,
+        resource.filename || uploadAsset.name || "图片"
+      );
     } catch (uploadError) {
+      editorRef.current?.cancelImageUpload(uploadId);
       setError(uploadError instanceof Error ? uploadError.message : "图片上传失败");
-      return null;
     } finally {
       uploadingRef.current = false;
       setUploading(false);
@@ -4573,6 +4628,7 @@ const MemoList = ({
   emptyTitle,
   error,
   isError,
+  initialSyncProgress,
   isLoading,
   isLoadingMore = false,
   isRefreshing,
@@ -4591,6 +4647,7 @@ const MemoList = ({
   emptyTitle: string;
   error?: unknown;
   isError: boolean;
+  initialSyncProgress: MobileBootstrapProgress | null;
   isLoading: boolean;
   isLoadingMore?: boolean;
   isRefreshing: boolean;
@@ -4604,13 +4661,33 @@ const MemoList = ({
   selectionMode?: boolean;
   selectedMemoIds?: Set<string>;
 }) => {
-  if (isLoading) {
+  const localePreference = useMobileLocalePreference();
+  const englishLocale = isEnglishMobileLocale(localePreference);
+  const hasInitialSyncProgress = initialSyncProgress !== null;
+  const loadedCount = initialSyncProgress?.loadedCount ?? 0;
+  const totalCount = initialSyncProgress?.totalCount ?? 0;
+  const progressPercent = totalCount > 0 ? Math.min(100, Math.round((loadedCount / totalCount) * 100)) : 0;
+  const progressTitle = englishLocale ? "Syncing your notes" : "正在同步笔记";
+  const progressDescription = totalCount > 0
+    ? (englishLocale ? `${loadedCount} of ${totalCount} notes loaded` : `已加载 ${loadedCount} / ${totalCount} 条笔记`)
+    : (englishLocale ? "Preparing your notes for the first sync…" : "正在准备首次同步…");
+  const loadingTitle = hasInitialSyncProgress ? progressTitle : (englishLocale ? "Loading notes" : "正在加载笔记");
+  const loadingDescription = hasInitialSyncProgress
+    ? progressDescription
+    : (englishLocale ? "Loading notebooks and notes…" : "正在加载笔记本和笔记…");
+
+  if ((isLoading || hasInitialSyncProgress) && memos.length === 0) {
     return (
-      <View accessibilityLabel="正在加载笔记" accessibilityLiveRegion="polite" style={styles.memoListStateWrap}>
+      <View accessibilityLabel={loadingTitle} accessibilityLiveRegion="polite" style={styles.memoListStateWrap}>
         <View style={styles.memoListLoadingCard}>
           <ActivityIndicator color="#059669" size="large" />
-          <Text style={styles.memoListLoadingTitle}>正在加载笔记</Text>
-          <Text style={styles.memoListLoadingDescription}>正在同步笔记本和笔记，首次登录可能需要一点时间。</Text>
+          <Text style={styles.memoListLoadingTitle}>{loadingTitle}</Text>
+          <Text style={styles.memoListLoadingDescription}>{loadingDescription}</Text>
+          {totalCount > 0 ? (
+            <View style={styles.memoSyncProgressTrack}>
+              <View style={[styles.memoSyncProgressFill, { width: `${progressPercent}%` }]} />
+            </View>
+          ) : null}
         </View>
       </View>
     );
@@ -4667,6 +4744,33 @@ const MemoList = ({
           ) : null}
         </View>
       }
+      ListHeaderComponent={hasInitialSyncProgress ? (
+          <View accessibilityLiveRegion="polite" style={styles.memoSyncBanner}>
+            <ActivityIndicator color="#059669" size="small" />
+            <View style={styles.memoSyncBannerContent}>
+              <Text style={styles.memoSyncBannerTitle}>{progressTitle}</Text>
+              <Text style={styles.memoSyncBannerDescription}>{progressDescription}</Text>
+              <View style={styles.memoSyncProgressTrack}>
+                <View style={[styles.memoSyncProgressFill, { width: `${progressPercent}%` }]} />
+              </View>
+            </View>
+          </View>
+        ) : isError ? (
+          <View accessibilityLiveRegion="polite" style={styles.memoSyncErrorBanner}>
+            <View style={styles.memoSyncBannerContent}>
+              <Text style={styles.memoSyncErrorBannerTitle}>{englishLocale ? "Sync paused" : "同步已暂停"}</Text>
+              <Text style={styles.memoSyncErrorBannerDescription}>
+                {englishLocale ? "Loaded notes remain available. Check your connection and retry." : "已加载的笔记仍可使用，请检查网络后重试。"}
+              </Text>
+            </View>
+            {onRetry ? (
+              <Pressable accessibilityRole="button" onPress={onRetry} style={styles.memoSyncErrorRetryButton}>
+                <RotateCcw color="#92400e" size={15} />
+                <Text style={styles.memoListRetryText}>{englishLocale ? "Retry" : "重试"}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       ListFooterComponent={isLoadingMore ? <ActivityIndicator color="#0f172a" style={styles.listLoadingFooter} /> : null}
       updateCellsBatchingPeriod={32}
       windowSize={7}
@@ -5352,6 +5456,41 @@ const getMobileSystemInfoText = (localePreference: MobileLocaleMode) =>
         version: "版本",
       };
 
+const getMobileSystemInfoItems = (localePreference: MobileLocaleMode) => {
+  const copy = getMobileSystemInfoText(localePreference);
+  const resolvedLocale = getResolvedMobileLocale(localePreference);
+
+  return [
+    { label: copy.version, value: `v${MOBILE_APP_VERSION}` },
+    { label: copy.build, value: __DEV__ ? "development" : "production" },
+    { label: copy.platform, value: Platform.OS },
+    { label: copy.platformVersion, value: String(Platform.Version) },
+    { label: copy.language, value: localePreference === "system" ? `${resolvedLocale} (${copy.followSystem})` : resolvedLocale },
+    { label: copy.timeZone, value: Intl.DateTimeFormat().resolvedOptions().timeZone || copy.unknown },
+    { label: copy.installMode, value: formatExecutionEnvironment(Constants.executionEnvironment, localePreference) },
+  ];
+};
+
+const buildMobileFeedbackUrl = (localePreference: MobileLocaleMode) => {
+  const english = isEnglishMobileLocale(localePreference);
+
+  return buildGitHubFeedbackUrl({
+    contentHeading: english ? "Feedback" : "反馈内容",
+    contentPrompt: english
+      ? "Describe the problem, steps to reproduce it, or the feature you would like to see."
+      : "请描述遇到的问题、复现步骤，或你希望增加的功能。",
+    privacyNotice: english
+      ? "GitHub Issues are public. Do not include passwords, tokens, instance URLs, or private note content."
+      : "GitHub Issue 公开可见，请勿提交密码、Token、实例地址或私人笔记内容。",
+    systemInfo: getMobileSystemInfoItems(localePreference),
+    systemInfoHeading: english ? "System information" : "系统信息",
+    systemInfoNotice: english
+      ? "The following information was generated by EdgeEver to help diagnose the issue."
+      : "以下信息由 EdgeEver 自动生成，可帮助定位问题。",
+    titlePrefix: english ? "[Feedback] " : "[反馈] ",
+  });
+};
+
 const formatDate = (value: string, localePreference: MobileLocaleMode = "system") =>
   new Intl.DateTimeFormat(getResolvedMobileLocale(localePreference), {
     month: "2-digit",
@@ -5446,6 +5585,15 @@ const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(blob);
 });
 
+const createMobileImageUploadId = () =>
+  `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const createLocalImagePreviewDataUrl = async (asset: { mimeType?: string | null; uri: string }) => {
+  const file = new ExpoFile(asset.uri);
+  const mimeType = asset.mimeType || file.type || "application/octet-stream";
+  return `data:${mimeType};base64,${await file.base64()}`;
+};
+
 const appendResourceMarkdown = (
   currentMarkdown: string,
   resource: {
@@ -5459,45 +5607,6 @@ const appendResourceMarkdown = (
   const trimmed = currentMarkdown.trimEnd();
 
   return trimmed ? `${trimmed}\n\n${markdown}\n` : `${markdown}\n`;
-};
-
-const prepareUploadAsset = async (
-  asset: DocumentPickerAsset,
-  imageCompressionEnabled: boolean
-): Promise<{ uri: string; name: string; type: string }> => {
-  const mimeType = asset.mimeType || "application/octet-stream";
-  const filename = asset.name || "upload";
-
-  if (!imageCompressionEnabled || !COMPRESSIBLE_IMAGE_TYPES.has(mimeType)) {
-    return {
-      uri: asset.uri,
-      name: filename,
-      type: mimeType,
-    };
-  }
-
-  try {
-    const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
-    const measured = await manipulateAsync(asset.uri, [], { compress: 1, format: SaveFormat.JPEG });
-    const maxEdge = Math.max(measured.width, measured.height);
-    const resizeAction = maxEdge > MAX_COMPRESSED_IMAGE_EDGE ? [{ resize: getCompressedImageSize(measured.width, measured.height) }] : [];
-    const compressed = await manipulateAsync(asset.uri, resizeAction, {
-      compress: IMAGE_COMPRESSION_QUALITY,
-      format: SaveFormat.WEBP,
-    });
-
-    return {
-      uri: compressed.uri,
-      name: toCompressedImageFilename(filename),
-      type: "image/webp",
-    };
-  } catch {
-    return {
-      uri: asset.uri,
-      name: filename,
-      type: mimeType,
-    };
-  }
 };
 
 const createOptimisticMemo = (
@@ -5652,24 +5761,6 @@ const markdownToLocalText = (markdown: string) =>
     .replace(/[`*_>#~-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-
-const getCompressedImageSize = (width: number, height: number) => {
-  if (width >= height) {
-    return { width: MAX_COMPRESSED_IMAGE_EDGE };
-  }
-
-  return { height: MAX_COMPRESSED_IMAGE_EDGE };
-};
-
-const toCompressedImageFilename = (filename: string) => {
-  const trimmed = filename.trim();
-
-  if (!trimmed) {
-    return "image.webp";
-  }
-
-  return trimmed.replace(/\.[^.]+$/, "") + ".webp";
-};
 
 const getTokenScopeLabel = (scope: string) => {
   const labels: Record<string, string> = {
@@ -5916,6 +6007,12 @@ const baseWorkspaceStyles = StyleSheet.create({
     color: "#1e293b",
     fontSize: 14,
     fontWeight: "700",
+  },
+  settingsFeedbackCopy: {
+    flex: 1,
+  },
+  settingsFeedbackIcon: {
+    backgroundColor: "#f1f5f9",
   },
   settingsDetailList: {
     gap: 16,
@@ -6538,6 +6635,74 @@ const baseWorkspaceStyles = StyleSheet.create({
     marginTop: 7,
     maxWidth: 300,
     textAlign: "center",
+  },
+  memoSyncBanner: {
+    alignItems: "center",
+    backgroundColor: "#ecfdf5",
+    borderColor: "#a7f3d0",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  memoSyncBannerContent: {
+    flex: 1,
+  },
+  memoSyncBannerTitle: {
+    color: "#065f46",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  memoSyncBannerDescription: {
+    color: "#047857",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  memoSyncProgressTrack: {
+    backgroundColor: "#d1fae5",
+    borderRadius: 999,
+    height: 4,
+    marginTop: 10,
+    overflow: "hidden",
+    width: "100%",
+  },
+  memoSyncProgressFill: {
+    backgroundColor: "#059669",
+    borderRadius: 999,
+    height: "100%",
+  },
+  memoSyncErrorBanner: {
+    alignItems: "center",
+    backgroundColor: "#fffbeb",
+    borderColor: "#fcd34d",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  memoSyncErrorBannerTitle: {
+    color: "#451a03",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  memoSyncErrorBannerDescription: {
+    color: "#92400e",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  memoSyncErrorRetryButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
   },
   memoListErrorCard: {
     alignItems: "center",

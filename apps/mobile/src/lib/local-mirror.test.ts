@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { hasMobileSyncCursorRewound, hasMobileSyncIdentityChanged, isMobileSyncMetadataInitialized } from "./mobile-sync-protocol";
+import { hasMobileSyncCursorRewound, hasMobileSyncIdentityChanged, isMobileSyncMetadataInitialized, splitMobileBootstrapWriteBatches } from "./mobile-sync-protocol";
 
 test("rebuilds the mobile mirror when the server change cursor rewinds", () => {
   expect(hasMobileSyncCursorRewound(42, 7)).toBe(true);
@@ -25,4 +25,10 @@ test("waits for a complete local mirror before rendering an empty notebook", () 
   expect(isMobileSyncMetadataInitialized(null, "workspace-a")).toBe(false);
   expect(isMobileSyncMetadataInitialized("42", null)).toBe(false);
   expect(isMobileSyncMetadataInitialized("not-a-number", "workspace-a")).toBe(false);
+});
+
+test("splits the initial mirror into progressive write batches", () => {
+  const items = Array.from({ length: 123 }, (_, index) => index);
+  expect(splitMobileBootstrapWriteBatches(items, 50).map((batch) => batch.length)).toEqual([50, 50, 23]);
+  expect(splitMobileBootstrapWriteBatches([], 50)).toEqual([[]]);
 });
