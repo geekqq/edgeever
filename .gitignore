@@ -11,6 +11,7 @@ build/
 coverage/
 
 .wrangler/
+.wrangler.generated-migrations/
 .wrangler.generated*.toml
 .dev.vars
 wrangler.local.toml

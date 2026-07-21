@@ -112,7 +112,7 @@ EDGE_EVER_PASSWORD='你的后台登录密码' bun run deploy:setup
 
 # 3. 环境自检并部署
 bun run deploy:doctor
-bun run deploy
+bun run deploy:manual
 ```
 
 部署完成后，终端会直接输出你的独立访问域名，点开即可使用！

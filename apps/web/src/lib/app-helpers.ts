@@ -145,6 +145,7 @@ export { buildNotebookTree, type NotebookNode };
 export { DEFAULT_MEMO_TITLE };
 
 export const IMAGE_COMPRESSION_STORAGE_KEY = "edgeever.imageCompressionEnabled";
+export const DESKTOP_FOCUS_MODE_STORAGE_KEY = "edgeever.desktopFocusMode";
 export const MEMO_LIST_DENSITY_STORAGE_KEY = "edgeever.memoListDensity";
 export const MEMO_LIST_WIDTH_STORAGE_KEY = "edgeever.memoListWidth";
 export const NOTEBOOK_SORT_STORAGE_KEY = "edgeever.notebookSort";
@@ -245,6 +246,22 @@ export const readImageCompressionPreference = () => {
 export const writeImageCompressionPreference = (enabled: boolean) => {
   try {
     window.localStorage.setItem(IMAGE_COMPRESSION_STORAGE_KEY, enabled ? "true" : "false");
+  } catch {
+    // Local storage can be unavailable in private or restricted browser contexts.
+  }
+};
+
+export const readDesktopFocusModePreference = () => {
+  try {
+    return window.localStorage.getItem(DESKTOP_FOCUS_MODE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
+export const writeDesktopFocusModePreference = (enabled: boolean) => {
+  try {
+    window.localStorage.setItem(DESKTOP_FOCUS_MODE_STORAGE_KEY, enabled ? "true" : "false");
   } catch {
     // Local storage can be unavailable in private or restricted browser contexts.
   }

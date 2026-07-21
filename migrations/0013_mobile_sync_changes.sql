@@ -12,44 +12,10 @@ CREATE TABLE mobile_sync_changes (
 CREATE INDEX idx_mobile_sync_changes_workspace_cursor
   ON mobile_sync_changes(workspace_id, id);
 
-CREATE TRIGGER trg_mobile_sync_notebooks_insert
-AFTER INSERT ON notebooks
-BEGIN
-  INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation)
-  VALUES (NEW.workspace_id, 'notebook', NEW.id, 'upsert');
-END;
-
-CREATE TRIGGER trg_mobile_sync_notebooks_update
-AFTER UPDATE ON notebooks
-BEGIN
-  INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation)
-  VALUES (NEW.workspace_id, 'notebook', NEW.id, CASE WHEN NEW.is_deleted = 1 THEN 'delete' ELSE 'upsert' END);
-END;
-
-CREATE TRIGGER trg_mobile_sync_notebooks_delete
-AFTER DELETE ON notebooks
-BEGIN
-  INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation)
-  VALUES (OLD.workspace_id, 'notebook', OLD.id, 'delete');
-END;
-
-CREATE TRIGGER trg_mobile_sync_memos_insert
-AFTER INSERT ON memos
-BEGIN
-  INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation)
-  VALUES (NEW.workspace_id, 'memo', NEW.id, 'upsert');
-END;
-
-CREATE TRIGGER trg_mobile_sync_memos_update
-AFTER UPDATE ON memos
-BEGIN
-  INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation)
-  VALUES (NEW.workspace_id, 'memo', NEW.id, 'upsert');
-END;
-
-CREATE TRIGGER trg_mobile_sync_memos_delete
-AFTER DELETE ON memos
-BEGIN
-  INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation)
-  VALUES (OLD.workspace_id, 'memo', OLD.id, 'delete');
-END;
+-- Keep triggers on one physical line for remote D1 compatibility.
+CREATE TRIGGER trg_mobile_sync_notebooks_insert AFTER INSERT ON notebooks BEGIN INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation) VALUES (NEW.workspace_id, 'notebook', NEW.id, 'upsert'); END;
+CREATE TRIGGER trg_mobile_sync_notebooks_update AFTER UPDATE ON notebooks BEGIN INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation) VALUES (NEW.workspace_id, 'notebook', NEW.id, (CASE WHEN NEW.is_deleted = 1 THEN 'delete' ELSE 'upsert' END)); END;
+CREATE TRIGGER trg_mobile_sync_notebooks_delete AFTER DELETE ON notebooks BEGIN INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation) VALUES (OLD.workspace_id, 'notebook', OLD.id, 'delete'); END;
+CREATE TRIGGER trg_mobile_sync_memos_insert AFTER INSERT ON memos BEGIN INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation) VALUES (NEW.workspace_id, 'memo', NEW.id, 'upsert'); END;
+CREATE TRIGGER trg_mobile_sync_memos_update AFTER UPDATE ON memos BEGIN INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation) VALUES (NEW.workspace_id, 'memo', NEW.id, 'upsert'); END;
+CREATE TRIGGER trg_mobile_sync_memos_delete AFTER DELETE ON memos BEGIN INSERT INTO mobile_sync_changes (workspace_id, entity_type, entity_id, operation) VALUES (OLD.workspace_id, 'memo', OLD.id, 'delete'); END;

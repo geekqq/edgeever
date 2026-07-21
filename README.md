@@ -35,7 +35,7 @@ The public demo resets every Monday at 1:00 AM (China Standard Time) and restore
 - EdgeEver ZIP import and export: one archive combines human-readable Markdown, Front Matter, nested notebook structure, and relative-path attachments with versioned structured data and revision history for complete recovery between EdgeEver instances.
 - AI Agent friendly: built-in MCP support lets tools such as Codex, Claude Code, and Antigravity read, organize, and maintain notes, while enabling integrations with Notion databases and Feishu Bitable.
 - Uncapped multi-device sync: self-hosted API means no restrictive commercial limits on the number of active login devices, supporting seamless synchronization across PC, tablet, and mobile (via PWA or browser).
-- Three-pane layout: notebook tree, note list, and main editor.
+- Three-pane layout: notebook tree, note list, and main editor, with a desktop focus mode that expands the selected note across the workspace.
 - Unlimited nested notebooks.
 - Rich text editing.
 - Switch between Markdown source and rich text views on desktop.
@@ -50,33 +50,43 @@ The public demo resets every Monday at 1:00 AM (China Standard Time) and restore
 
 ## Deployment
 
-### Deploy with an AI Agent
+Choose any one of the following three options to complete deployment.
 
-Copy this prompt into your AI coding assistant, such as Claude Code, Codex, OpenClaw, Antigravity, Cursor, or Trae. It covers the first installation and the automatic-update setup:
+### Option A: Deploy to Cloudflare (Recommended)
 
-**Recommendation:** Before deployment, configure GitHub and Cloudflare MCP servers, plugins, or other supported integrations for your AI Agent. This allows it to fork the repository, create the required Cloudflare resources, deploy the application, and connect the instance to Cloudflare Workers Builds.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tianma-if/edgeever)
+
+One-click deployment creates a dedicated GitHub repository and the required Cloudflare resources, then automatically redeploys after the repository's daily upstream sync; see [Deploy EdgeEver with Cloudflare](docs/deploy-cloudflare-button.md) for setup and troubleshooting.
+
+### Option B: Deploy with an AI Agent
+
+> 💡 **Note:** Under the hood, AI Agent deployment uses the exact same deterministic CLI commands (Wrangler and Bun scripts) as the manual flow. The AI agent simply executes these standard commands in the terminal on your behalf for convenience; it is not a non-deterministic, black-box deployment.
+ 
+Copy this prompt into your AI coding assistant, such as Claude Code, Codex, OpenClaw, Antigravity, or Cursor. It uses the same deployment core as the button and manual flows:
+
+**Recommendation:** Before deployment, configure GitHub and Cloudflare MCP servers, plugins, or other supported integrations for your AI Agent.
 
 ```text
 Please follow these steps:
-1. Fork the EdgeEver upstream repository: https://github.com/tianma-if/edgeever
-2. Use the forked repository to create the Cloudflare resources and complete EdgeEver's first deployment.
-3. Run `bun run deploy:builds:setup` to connect the deployed Worker to the fork's `main` branch through Cloudflare Workers Builds. If setup needs a token, use a User API Token, not an Account API Token.
-4. After that, GitHub Sync fork or any push to `main` must automatically build, apply D1 migrations, and deploy the instance.
+1. Create a GitHub repository from https://github.com/tianma-if/edgeever and clone it locally.
+2. Follow docs/agent-deploy-cloudflare.md to create Cloudflare resources and run `bun run deploy:manual`.
+3. Run `bun run deploy:builds:setup` to connect the deployed Worker to the repository's `main` branch through Cloudflare Workers Builds. If setup needs a token, use a User API Token, not an Account API Token.
+4. Verify the first automatic build and the daily upstream-update workflow.
 ```
 
 Agents should follow [AI Agent Cloudflare Deployment](docs/agent-deploy-cloudflare.md).
 
-After the first deployment, see [Cloudflare Workers Builds](docs/cloudflare-workers-builds.md) for automatic updates. The same deployment flow is used by official instances and forks.
+After the first deployment, see [Cloudflare Workers Builds](docs/cloudflare-workers-builds.md). All installation entry points use the same build, migration, deployment, and verification pipeline.
 
 > Common pitfall: Cloudflare R2, D1, and Workers may still require a Visa card during activation or usage, even when you stay within the free quotas.
 
-<p align="center">or</p>
+### Option C: Manual Deployment
 
-### Manual Deployment
+Please refer to the [Cloudflare Manual Deployment Guide](docs/manual-deploy.md) for advanced first-time installation, Cloudflare resource setup, troubleshooting, and emergency recovery. After the first deployment, connect Workers Builds; future repository updates deploy automatically.
 
-Please refer to the [Cloudflare Manual Deployment Guide](docs/manual-deploy.md) for first-time manual installation, Cloudflare resource setup, and emergency recovery. After the first deployment, connect Workers Builds; future updates arrive through GitHub **Sync fork** or pushes to `main`.
+The automated helper commands are recommended. The manual template uses `admin` / `admin123` for the initial login, and the password can be changed later in Personal Settings. If you create the Cloudflare resources manually, finish configuring `.env.local`—including the D1 ID, R2 bucket, and the 400-day session limit—before running `bun run deploy:manual`.
 
-The automated helper commands are recommended. The template uses `admin` / `admin123` for the initial login, and the password can be changed later in Personal Settings. If you create the Cloudflare resources manually, finish configuring `.env.local`—including the D1 ID, R2 bucket, and the 400-day session limit—before running `bun run deploy`.
+Production deployments fail closed: when D1 migrations or the login Secret are missing, the instance shows a diagnosable configuration error and denies access instead of falling back to an unauthenticated workspace. Never insert plaintext passwords into D1; use the recovery command documented in the manual deployment guide.
 
 
 ## Multi-Account Login
@@ -208,6 +218,10 @@ If you want to migrate notes from other platforms to EdgeEver, please refer to t
 ## Community and Feedback
 
 - Bugs, feature requests, and deployment issues: [GitHub Issues](https://github.com/tianma-if/edgeever/issues)
+
+## Docker Deployment Roadmap
+
+> 🐳 Docker-based self-hosting for VPS, NAS, and home servers is on the roadmap and will follow once the core features are stable. It is not yet available in current releases.
 
 ## Disclaimer
 

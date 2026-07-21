@@ -43,9 +43,12 @@
     "mcp:stdio": "bun scripts/edgeever-mcp-stdio.mjs",
     "deploy:doctor": "bun scripts/cloudflare-deploy.mjs doctor",
     "deploy:setup": "bun scripts/cloudflare-deploy.mjs setup",
-    "deploy": "bun run build && bun run deploy:worker",
-    "deploy:worker": "bun run deploy:cloudflare-builds",
-    "deploy:cloudflare-builds": "bun run db:migrate:remote && bun scripts/run-wrangler.mjs deploy",
+    "deploy": "bun run build:cloudflare && EDGE_EVER_USE_EXISTING_AUTH_SECRET=true bun run deploy:ci",
+    "deploy:manual": "bun run deploy:doctor && bun run build:cloudflare && bun run deploy:ci",
+    "deploy:ci": "bun run db:migrate:remote && bun run deploy:worker && bun run deploy:verify",
+    "deploy:worker": "bun scripts/run-wrangler.mjs deploy",
+    "deploy:cloudflare-builds": "bun run deploy:ci",
+    "deploy:verify": "bun scripts/verify-deployment.mjs",
     "deploy:builds:setup": "bun scripts/cloudflare-workers-builds.mjs setup",
     "deploy:site": "bun run build:site && wrangler pages deploy apps/site/dist --project-name=edgeever-official"
   },
@@ -56,6 +59,9 @@
       },
       "RESOURCES": {
         "description": "EdgeEver 的 R2 对象存储桶。用于存储笔记内图片、附件和未来导入导出文件；D1 只保存资源元数据和 memo 关联。"
+      },
+      "EDGE_EVER_AUTH_PASSWORD": {
+        "description": "首次登录密码，必填。请设置一个仅用于此实例的强密码；部署后可在个人设置中修改。"
       }
     }
   },
@@ -117,6 +123,6 @@
     "typescript": "latest",
     "vite": "latest",
     "vite-plugin-pwa": "^1.3.0",
-    "wrangler": "latest"
+    "wrangler": "^4.112.0"
   }
 }

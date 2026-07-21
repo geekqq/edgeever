@@ -10,7 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ApiRequestError, api } from "@/lib/api";
 
-export const UserManagementCard = () => {
+interface UserManagementCardProps {
+  demoMode: boolean;
+}
+
+export const UserManagementCard = ({ demoMode }: UserManagementCardProps) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -93,9 +97,11 @@ export const UserManagementCard = () => {
                 <p className="truncate text-xs text-slate-500">@{user.username} · {t(`users.roles.${user.role}`)}</p>
               </div>
               <div className="flex items-center gap-3">
-                <Button size="sm" variant="outline" onClick={() => setResetUser(user)}>
-                  <KeyRound className="h-3.5 w-3.5" /> {t("users.resetPassword")}
-                </Button>
+                {demoMode && user.role === "owner" ? null : (
+                  <Button size="sm" variant="outline" onClick={() => setResetUser(user)}>
+                    <KeyRound className="h-3.5 w-3.5" /> {t("users.resetPassword")}
+                  </Button>
+                )}
                 {user.role !== "owner" ? (
                   <label className="flex items-center gap-2 text-xs text-slate-600">
                     {user.isDisabled ? t("users.disabled") : t("users.enabled")}

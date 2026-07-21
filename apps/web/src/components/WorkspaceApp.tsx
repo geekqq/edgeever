@@ -62,6 +62,8 @@ import {
   isTextEntryTarget,
   readImageCompressionPreference,
   writeImageCompressionPreference,
+  readDesktopFocusModePreference,
+  writeDesktopFocusModePreference,
   readShortcutSettingsPreference,
   writeShortcutSettingsPreference,
   getShortcutActionForEvent,
@@ -661,6 +663,7 @@ export const WorkspaceApp = ({
   const [appNoticeDialog, setAppNoticeDialog] = useState<AppNoticeDialogState | null>(null);
   const [multiSelectKeyDown, setMultiSelectKeyDown] = useState(false);
   const [imageCompressionEnabled, setImageCompressionEnabled] = useState(readImageCompressionPreference);
+  const [desktopFocusMode, setDesktopFocusMode] = useState(readDesktopFocusModePreference);
   const [shortcutSettings, setShortcutSettings] = useState<ShortcutSettings>(readShortcutSettingsPreference);
   const [rightView, setRightView] = useState<"editor" | "settings" | "assets" | "tags" | "evernote-migration">(() =>
     isInitialSettingsRoute ? "settings" : "editor"
@@ -1546,6 +1549,9 @@ export const WorkspaceApp = ({
     ? queryClient.getQueryData<{ memo: MemoDetail }>(memoDetailQueryKey(selectedMemoId, memoView))?.memo ?? null
     : null;
   const selectedMemo = memoQuery.data?.memo ?? cachedSelectedMemo;
+  const desktopFocusModeActive = Boolean(
+    isDesktop && desktopFocusMode && rightView === "editor" && selectedMemo && !memoSelectionModeActive
+  );
   const selectionMoveNotebookOptions = useMemo(() => getNotebookMoveOptions(notebooks), [notebooks]);
   const selectedMemosInCurrentList = useMemo(
     () => memos.filter((memo) => selectedMemoIds.has(memo.id)),
@@ -1973,6 +1979,15 @@ export const WorkspaceApp = ({
     }
   };
 
+  const updateDesktopFocusMode = useCallback((enabled: boolean) => {
+    setDesktopFocusMode(enabled);
+    writeDesktopFocusModePreference(enabled);
+  }, []);
+
+  const toggleDesktopFocusMode = useCallback(() => {
+    updateDesktopFocusMode(!desktopFocusModeActive);
+  }, [desktopFocusModeActive, updateDesktopFocusMode]);
+
   const handleWorkspaceBackRequest = useCallback(() => {
     if (appNoticeDialog) {
       setAppNoticeDialog(null);
@@ -2037,6 +2052,11 @@ export const WorkspaceApp = ({
       return true;
     }
 
+    if (desktopFocusModeActive) {
+      updateDesktopFocusMode(false);
+      return true;
+    }
+
     if (rightView === "settings") {
       handleCloseSettings();
       return true;
@@ -2066,6 +2086,7 @@ export const WorkspaceApp = ({
     return false;
   }, [
     visibleActivePane,
+    desktopFocusModeActive,
     appNoticeDialog,
     rightView,
     clearMemoSelection,
@@ -2090,6 +2111,7 @@ export const WorkspaceApp = ({
     notebookNameDialog,
     templatesOpen,
     updateNotebookMutation.isPending,
+    updateDesktopFocusMode,
   ]);
 
   useBrowserBackLayer(workspaceBackTargetActive, handleWorkspaceBackRequest);
@@ -2324,16 +2346,22 @@ export const WorkspaceApp = ({
         <main
           className={cn(
             "grid h-[100dvh] min-h-0 grid-cols-[minmax(0,1fr)]",
-            rightView === "editor"
-              ? "lg:grid-cols-[260px_var(--memo-list-width)_minmax(0,1fr)]"
-              : "lg:grid-cols-[260px_1fr]"
+            desktopFocusModeActive
+              ? "lg:grid-cols-[minmax(0,1fr)]"
+              : rightView === "editor"
+                ? "lg:grid-cols-[260px_var(--memo-list-width)_minmax(0,1fr)]"
+                : "lg:grid-cols-[260px_1fr]"
           )}
           style={{ "--memo-list-width": `${memoListWidth}px` } as CSSProperties}
         >
           <aside
             className={cn(
-              "min-h-0 border-r border-slate-200 bg-white/75 backdrop-blur-lg lg:block",
-              visibleActivePane === "notebooks" ? "block" : "hidden"
+              "min-h-0 border-r border-slate-200 bg-white/75 backdrop-blur-lg",
+              desktopFocusModeActive
+                ? "hidden"
+                : visibleActivePane === "notebooks"
+                  ? "block lg:block"
+                  : "hidden lg:block"
             )}
           >
             {(isDesktop || visibleActivePane === "notebooks") && (
@@ -2389,9 +2417,11 @@ export const WorkspaceApp = ({
           <section
             className={cn(
               "relative min-w-0 overflow-hidden border-r border-slate-200 bg-slate-50",
-              rightView === "editor"
-                ? (visibleActivePane === "memos" ? "block lg:block lg:bg-white/75 lg:backdrop-blur-lg" : "hidden lg:block lg:bg-white/75 lg:backdrop-blur-lg")
-                : (visibleActivePane === "memos" ? "block lg:hidden" : "hidden lg:hidden")
+              desktopFocusModeActive
+                ? "hidden"
+                : rightView === "editor"
+                  ? (visibleActivePane === "memos" ? "block lg:block lg:bg-white/75 lg:backdrop-blur-lg" : "hidden lg:block lg:bg-white/75 lg:backdrop-blur-lg")
+                  : (visibleActivePane === "memos" ? "block lg:hidden" : "hidden lg:hidden")
             )}
           >
             <MemoListPane
@@ -2534,6 +2564,8 @@ export const WorkspaceApp = ({
                 ) : (
                   <EditorPane
                     memo={selectedMemo}
+                    desktopFocusMode={desktopFocusModeActive}
+                    onToggleDesktopFocusMode={toggleDesktopFocusMode}
                     mobileDefaultEditMemoId={createdMemoEditId}
                     isTrashView={memoView === "trash"}
                     notebooks={notebooks}

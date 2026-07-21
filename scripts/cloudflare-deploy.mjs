@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { runWranglerSync } from "./wrangler-runner.mjs";
 
 const PLACEHOLDER_D1_ID = "00000000-0000-0000-0000-000000000000";
 const UUID_PATTERN =
@@ -15,17 +16,6 @@ if (!["doctor", "setup"].includes(command)) {
 
 const envPath = resolve(".env.local");
 const envExamplePath = resolve(".env.local.example");
-const localWrangler = resolve(
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "wrangler.cmd" : "wrangler",
-);
-const wrangler = existsSync(localWrangler)
-  ? localWrangler
-  : process.platform === "win32"
-    ? "wrangler.cmd"
-    : "wrangler";
-
 const parseEnv = (content) => {
   const values = new Map();
 
@@ -105,16 +95,49 @@ const run = (executable, args, options = {}) =>
     cwd: resolve("."),
     encoding: "utf8",
     env: process.env,
-    shell: process.platform === "win32",
+    shell: false,
     ...options,
   });
 
-const runWrangler = (args) => run(wrangler, args);
+const runWrangler = (args, options = {}) =>
+  runWranglerSync(args, {
+    cwd: resolve("."),
+    encoding: "utf8",
+    env: process.env,
+    ...options,
+  });
 
 const check = (label, passed, detail = "") => {
   const status = passed ? "ok" : "fail";
   console.log(`[${status}] ${label}${detail ? `: ${detail}` : ""}`);
   return passed;
+};
+
+const printCommandFailure = (result) => {
+  if (result.error?.message) console.error(result.error.message);
+  if (result.stdout) console.error(String(result.stdout).trim());
+  if (result.stderr) console.error(String(result.stderr).trim());
+};
+
+const ensureCloudflareAuth = () => {
+  let whoami = runWrangler(["whoami"]);
+  if (whoami.status === 0) {
+    return check("Cloudflare auth", true, "authenticated");
+  }
+
+  console.log("[info] Cloudflare authorization is required; starting Wrangler login...");
+  const login = runWrangler(["login"], { encoding: undefined, stdio: "inherit" });
+  if (login.status !== 0) {
+    check("Cloudflare auth", false, "Wrangler login did not complete");
+    if (login.error?.message) console.error(login.error.message);
+    return false;
+  }
+
+  whoami = runWrangler(["whoami"]);
+  const authenticated = whoami.status === 0;
+  check("Cloudflare auth", authenticated, authenticated ? "authenticated" : "login verification failed");
+  if (!authenticated) printCommandFailure(whoami);
+  return authenticated;
 };
 
 const ensureEnvLocal = () => {
@@ -230,12 +253,20 @@ const doctor = () => {
   const values = readEnv();
   let passed = true;
 
-  passed = check("Bun", run("bun", ["--version"]).status === 0) && passed;
-  passed = check("Wrangler", runWrangler(["--version"]).status === 0) && passed;
+  passed = check("Bun", run(process.execPath, ["--version"]).status === 0) && passed;
+  const wranglerVersion = runWrangler(["--version"]);
+  const wranglerAvailable = wranglerVersion.status === 0;
+  passed = check("Wrangler", wranglerAvailable) && passed;
+  if (!wranglerAvailable) printCommandFailure(wranglerVersion);
   passed = check(".env.local", existsSync(envPath), existsSync(envPath) ? "present" : "missing") && passed;
 
-  const whoami = runWrangler(["whoami"]);
-  passed = check("Cloudflare auth", whoami.status === 0, whoami.status === 0 ? "authenticated" : "run wrangler login") && passed;
+  if (wranglerAvailable) {
+    const whoami = runWrangler(["whoami"]);
+    passed = check("Cloudflare auth", whoami.status === 0, whoami.status === 0 ? "authenticated" : "run bun scripts/run-wrangler.mjs login") && passed;
+    if (whoami.status !== 0) printCommandFailure(whoami);
+  } else {
+    passed = check("Cloudflare auth", false, "Wrangler is unavailable") && passed;
+  }
 
   const databaseId = envValue("D1_DATABASE_ID", values);
   passed =
@@ -276,6 +307,16 @@ const doctor = () => {
           : "missing",
     ) && passed;
 
+  const allowUnauthenticated = envValue("ALLOW_UNAUTHENTICATED", values).toLowerCase();
+  passed =
+    check(
+      "production authentication policy",
+      allowUnauthenticated !== "true",
+      allowUnauthenticated === "true"
+        ? "EDGE_EVER_ALLOW_UNAUTHENTICATED is local-only and must not be enabled for deployment"
+        : "fail-closed",
+    ) && passed;
+
   process.exit(passed ? 0 : 1);
 };
 
@@ -284,9 +325,14 @@ const setup = () => {
   const values = readEnv();
   let passed = true;
 
-  passed = check("Wrangler", runWrangler(["--version"]).status === 0) && passed;
-  const whoami = runWrangler(["whoami"]);
-  passed = check("Cloudflare auth", whoami.status === 0, whoami.status === 0 ? "authenticated" : "run wrangler login") && passed;
+  const wranglerVersion = runWrangler(["--version"]);
+  const wranglerAvailable = wranglerVersion.status === 0;
+  passed = check("Wrangler", wranglerAvailable) && passed;
+  if (!wranglerAvailable) printCommandFailure(wranglerVersion);
+
+  if (wranglerAvailable) {
+    passed = ensureCloudflareAuth() && passed;
+  }
 
   if (!passed) {
     process.exit(1);

@@ -1,10 +1,10 @@
 # Cloudflare Workers Builds
 
-Cloudflare Workers Builds deploys EdgeEver whenever `main` changes, including after GitHub **Sync fork**. Use local `bun run deploy` only for the first installation or emergency recovery.
+Cloudflare Workers Builds deploys EdgeEver whenever `main` changes. Cloudflare one-click deployment connects it automatically; CLI installations use local `bun run deploy:manual` only for first installation or emergency recovery.
 
 ## Setup
 
-Complete the [first deployment](manual-deploy.md), then run:
+Cloudflare one-click installations do not need this setup command. For CLI or Agent installations, complete the [first deployment](manual-deploy.md), then run:
 
 ```sh
 bun run deploy:builds:setup
@@ -16,7 +16,7 @@ Only complete the following steps when the command asks for them.
 
 ### GitHub authorization
 
-Approve installation of the **Cloudflare Workers & Pages** GitHub App for the fork. This is the app's name; an EdgeEver instance does not require a Pages project. The command handles the repository connection after authorization.
+Approve installation of the **Cloudflare Workers & Pages** GitHub App for the deployment repository. This is the app's name; an EdgeEver instance does not require a Pages project. The command handles the repository connection after authorization.
 
 ### Configuration API token
 
@@ -41,6 +41,6 @@ If the command reports that no deployment API token is available, open **Worker*
 
 ## Updates and Troubleshooting
 
-After setup, push to `main` or use GitHub **Sync fork**. Cloudflare installs dependencies, checks and builds the app, applies new D1 migrations, and deploys the Worker. No GitHub Actions secrets or local redeployment are required.
+After setup, every push to `main` makes Cloudflare install dependencies, check and build the app, apply new D1 migrations, deploy the Worker, and verify the result. The **Update deployed EdgeEver** GitHub workflow supplies upstream updates daily: `stable` follows formal Releases by default, while the repository variable `EDGE_EVER_UPDATE_CHANNEL=edge` follows upstream `main`. No Cloudflare deployment secrets or local redeployment are required in GitHub Actions.
 
 If a build fails, inspect its log in the Worker **Deployments** tab. Rerun `bun run deploy:builds:setup` when instance settings change.

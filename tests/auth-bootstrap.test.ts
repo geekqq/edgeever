@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { hasBootstrapCredential, verifyBootstrapPassword } from "../apps/api/src/auth-bootstrap";
+import {
+  hasBootstrapCredential,
+  isSupportedPasswordHash,
+  verifyBootstrapPassword,
+} from "../apps/api/src/auth-bootstrap";
 
 const rejectHash = async () => false;
 
@@ -34,5 +38,14 @@ describe("bootstrap password authentication", () => {
   test("rejects login when neither password setting exists", async () => {
     expect(hasBootstrapCredential(undefined, undefined)).toBe(false);
     expect(await verifyBootstrapPassword("password", undefined, undefined, rejectHash)).toBe(false);
+  });
+
+  test("distinguishes valid password hashes from plaintext or damaged database values", () => {
+    const salt = "AAAAAAAAAAAAAAAAAAAAAA";
+    const hash = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    expect(isSupportedPasswordHash(`pbkdf2-sha256$100000$${salt}$${hash}`)).toBe(true);
+    expect(isSupportedPasswordHash("admin123")).toBe(false);
+    expect(isSupportedPasswordHash("pbkdf2-sha256$100000$broken$broken")).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   isDemoModeEnabled,
+  isProtectedDemoAccount,
   resolveDemoPasswordHash,
   shouldUpsertDemoSeedRecord,
 } from "../apps/api/src/demo-mode";
@@ -16,6 +17,13 @@ describe("demo mode policy", () => {
   test("keeps the configured legacy hash authoritative", async () => {
     const hashPassword = async () => "generated-hash";
     expect(await resolveDemoPasswordHash("plaintext", " legacy-hash ", hashPassword)).toBe("legacy-hash");
+  });
+
+  test("protects only the configured account while demo mode is enabled", () => {
+    expect(isProtectedDemoAccount("true", " ee-demo ", "ee-demo")).toBe(true);
+    expect(isProtectedDemoAccount("true", "ee-demo", "member")).toBe(false);
+    expect(isProtectedDemoAccount("false", "ee-demo", "ee-demo")).toBe(false);
+    expect(isProtectedDemoAccount("true", undefined, "admin")).toBe(true);
   });
 
   test("hashes a configured plaintext password for scheduled resets", async () => {

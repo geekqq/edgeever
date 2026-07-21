@@ -50,8 +50,19 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { cors } from "hono/cors";
 import openApiSpec from "../../../docs/openapi.json";
-import { hasBootstrapCredential, verifyBootstrapPassword } from "./auth-bootstrap";
-import { isDemoModeEnabled, resolveDemoPasswordHash, shouldUpsertDemoSeedRecord } from "./demo-mode";
+import { hasBootstrapCredential, isSupportedPasswordHash, verifyBootstrapPassword } from "./auth-bootstrap";
+import {
+  isDatabaseNotReadyError,
+  isUnauthenticatedAccessEnabled,
+  resolveInstanceAuthMode,
+  type InstanceAuthMode,
+} from "./auth-state";
+import {
+  isDemoModeEnabled,
+  isProtectedDemoAccount,
+  resolveDemoPasswordHash,
+  shouldUpsertDemoSeedRecord,
+} from "./demo-mode";
 
 type Bindings = {
   DB: D1Database;
@@ -63,6 +74,7 @@ type Bindings = {
   EDGE_EVER_R2_BUCKET_NAME?: string;
   EDGE_EVER_DEMO_MODE?: string;
   EDGE_EVER_LOCAL_DEMO_SEED?: string;
+  EDGE_EVER_ALLOW_UNAUTHENTICATED?: string;
 };
 
 type AuthContext = {
@@ -422,20 +434,31 @@ app.use(
   })
 );
 
-app.get("/api/health", (c) =>
-  c.json({
+app.get("/api/health", async (c) => {
+  const authMode = await getInstanceAuthMode(c.env);
+
+  if (authMode === "unconfigured") {
+    return authNotConfigured(c);
+  }
+
+  return c.json({
     ok: true,
     name: "edgeever",
     runtime: "cloudflare-workers",
-  })
-);
+    authMode,
+  });
+});
 
 app.get("/api/openapi.json", (c) => c.json(openApiSpec));
 
 app.get("/api/v1/auth/session", async (c) => {
-  const authRequired = await isAuthRequired(c.env);
+  const authMode = await getInstanceAuthMode(c.env);
 
-  if (!authRequired) {
+  if (authMode === "unconfigured") {
+    return authNotConfigured(c);
+  }
+
+  if (authMode === "disabled") {
     return c.json({
       authRequired: false,
       authenticated: true,
@@ -468,6 +491,11 @@ app.get("/api/v1/auth/session", async (c) => {
 });
 
 app.post("/api/v1/auth/login", zValidator("json", LoginSchema), async (c) => {
+  const authMode = await getInstanceAuthMode(c.env);
+  if (authMode === "unconfigured") {
+    return authNotConfigured(c);
+  }
+
   const input = c.req.valid("json");
   const user = await verifyLogin(c.env, input.username, input.password);
 
@@ -613,6 +641,12 @@ app.patch("/api/v1/users/:id", zValidator("json", UserUpdateSchema), async (c) =
   const input = c.req.valid("json");
   const current = await getInstanceUser(c.env.DB, userId);
   if (!current) return notFound(c, "User not found");
+  if (
+    isProtectedDemoAccount(c.env.EDGE_EVER_DEMO_MODE, c.env.EDGE_EVER_AUTH_USERNAME, current.username)
+    && (input.password !== undefined || input.isDisabled !== undefined)
+  ) {
+    return forbidden(c, "The demo owner account uses fixed credentials and cannot be modified.");
+  }
   if (current.role === "owner" && input.isDisabled === true) {
     return badRequest(c, "The instance owner cannot be disabled.");
   }
@@ -667,9 +701,13 @@ app.use("/api/v1/*", async (c, next) => {
     return;
   }
 
-  const authRequired = await isAuthRequired(c.env);
+  const authMode = await getInstanceAuthMode(c.env);
 
-  if (!authRequired) {
+  if (authMode === "unconfigured") {
+    return authNotConfigured(c);
+  }
+
+  if (authMode === "disabled") {
     c.set("auth", {
       kind: "user",
       actorType: "user",
@@ -2538,6 +2576,20 @@ app.notFound((c) =>
   )
 );
 
+app.onError((error, c) => {
+  if (error instanceof AppError) {
+    return apiError(c, error.code, error.message, error.status);
+  }
+
+  if (isDatabaseNotReadyError(error)) {
+    console.error("EdgeEver database readiness check failed", error);
+    return databaseNotReady(c);
+  }
+
+  console.error("Unhandled EdgeEver API error", error);
+  return apiError(c, "internal_error", "An unexpected server error occurred.", 500);
+});
+
 export default worker;
 
 type JsonRpcRequest = {
@@ -3451,13 +3503,37 @@ const decodeBase64Data = async (value: string) => {
 const escapeMarkdownImageAlt = (value: string) => value.replace(/[\\[\]]/g, "\\$&");
 const escapeMarkdownLinkLabel = (value: string) => value.replace(/[\\[\]]/g, "\\$&");
 
-const isAuthRequired = async (env: Bindings) => {
-  if (hasBootstrapCredential(env.EDGE_EVER_AUTH_PASSWORD, env.EDGE_EVER_AUTH_PASSWORD_HASH)) {
-    return true;
+const getInstanceAuthMode = async (env: Bindings): Promise<InstanceAuthMode> => {
+  if (!env.DB || typeof env.DB.prepare !== "function") {
+    throw new AppError(
+      "database_not_ready",
+      "Database is not ready. Bind the D1 database as DB and apply the remote migrations.",
+      503,
+    );
   }
 
-  const user = await env.DB.prepare(`SELECT id FROM users WHERE is_disabled = 0 LIMIT 1`).first<{ id: string }>();
-  return Boolean(user);
+  let user: { id: string } | null;
+  try {
+    user = await env.DB.prepare(`SELECT id FROM users WHERE is_disabled = 0 LIMIT 1`).first<{ id: string }>();
+  } catch (error) {
+    if (isDatabaseNotReadyError(error)) {
+      throw new AppError(
+        "database_not_ready",
+        "Database is not ready. Bind the D1 database as DB and apply the remote migrations.",
+        503,
+      );
+    }
+    throw error;
+  }
+
+  return resolveInstanceAuthMode({
+    allowUnauthenticated: isUnauthenticatedAccessEnabled(env.EDGE_EVER_ALLOW_UNAUTHENTICATED),
+    hasBootstrapCredential: hasBootstrapCredential(
+      env.EDGE_EVER_AUTH_PASSWORD,
+      env.EDGE_EVER_AUTH_PASSWORD_HASH,
+    ),
+    hasEnabledUser: Boolean(user),
+  });
 };
 
 const verifyLogin = async (env: Bindings, username: string, password: string): Promise<UserRow | null> => {
@@ -3465,7 +3541,19 @@ const verifyLogin = async (env: Bindings, username: string, password: string): P
   const existingUser = await getUserByUsername(env.DB, normalizedUsername);
 
   if (existingUser) {
-    return (await verifyPassword(password, existingUser.password_hash)) ? existingUser : null;
+    if (await verifyPassword(password, existingUser.password_hash)) {
+      return existingUser;
+    }
+
+    if (!isSupportedPasswordHash(existingUser.password_hash)) {
+      throw new AppError(
+        "password_hash_invalid",
+        "This account has an invalid password hash. Reset it with the EdgeEver password reset command.",
+        503,
+      );
+    }
+
+    return null;
   }
 
   const configuredHash = env.EDGE_EVER_AUTH_PASSWORD_HASH?.trim();
@@ -6304,6 +6392,22 @@ const apiError = (c: Context, code: string, message: string, status: number) =>
       },
     },
     status as 400
+  );
+
+const authNotConfigured = (c: Context) =>
+  apiError(
+    c,
+    "auth_not_configured",
+    "Authentication is not configured. Set EDGE_EVER_AUTH_PASSWORD as a Worker Secret and redeploy.",
+    503,
+  );
+
+const databaseNotReady = (c: Context) =>
+  apiError(
+    c,
+    "database_not_ready",
+    "Database is not ready. Bind the D1 database as DB and apply the remote migrations.",
+    503,
   );
 
 const conflict = (c: Context, code: string, message: string) =>

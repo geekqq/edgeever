@@ -57,7 +57,7 @@ export const siteCopy = {
     hero: {
       slogan: siteTaglines["zh-CN"],
       demo: "在线演示",
-      agentInstall: "通过AI Agent部署",
+      agentInstall: "部署 EdgeEver",
       imageAlt: "EdgeEver product preview",
       badgeText: "💡 支持印象笔记、Notion、Memos 零成本平替，双 MCP 自动搬家",
     },
@@ -128,8 +128,8 @@ export const siteCopy = {
       description: "把最关键的上手路径放到显眼位置：先部署自己的实例，再把旧笔记迁过来，最后用 MCP 接入 AI Agent 整理长期知识库。",
       items: [
         {
-          title: "AI Agent 一句话部署",
-          summary: "按仓库推荐流程，让 Codex、Claude Code、Cursor 等助手协助完成 Cloudflare 部署。",
+          title: "三种方式部署 EdgeEver",
+          summary: "Cloudflare 一键部署、AI Agent 和手动部署三种方案任选其一，使用同一套可靠的部署流程。",
           href: "/blog/ai-agent-deploy-cloudflare",
           cta: "查看部署指南",
         },
@@ -180,7 +180,7 @@ export const siteCopy = {
     hero: {
       slogan: siteTaglines["en-US"],
       demo: "Live demo",
-      agentInstall: "Install with AI Agent",
+      agentInstall: "Deploy EdgeEver",
       imageAlt: "EdgeEver product preview",
       badgeText: "💡 Serverless: Migrate from Evernote, Notion & Memos via Dual-MCP",
     },
@@ -251,8 +251,8 @@ export const siteCopy = {
       description: "The fastest paths into EdgeEver: deploy your own instance, move an existing Evernote archive, then connect MCP-powered AI workflows.",
       items: [
         {
-          title: "Deploy with an AI Agent",
-          summary: "Follow the repository-backed flow for Codex, Claude Code, Cursor, and similar assistants to deploy on Cloudflare.",
+          title: "Three ways to deploy EdgeEver",
+          summary: "Choose Cloudflare one-click, an AI Agent, or manual deployment—all three use the same reliable deployment pipeline.",
           href: "/blog/ai-agent-deploy-cloudflare",
           cta: "Read deployment guide",
         },

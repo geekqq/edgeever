@@ -39,12 +39,19 @@
                     },
                     "runtime": {
                       "type": "string"
+                    },
+                    "authMode": {
+                      "type": "string",
+                      "enum": ["required", "disabled"]
                     }
                   },
-                  "required": ["ok", "name", "runtime"]
+                  "required": ["ok", "name", "runtime", "authMode"]
                 }
               }
             }
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
           }
         }
       }
@@ -74,6 +81,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
           }
         }
       }
@@ -104,6 +114,9 @@
             }
           },
           "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
             "$ref": "#/components/responses/Error"
           }
         }

@@ -1956,7 +1956,7 @@ const SettingsView = ({
                   <View style={[styles.settingsMenuIcon, styles.settingsFeedbackIcon]}><MessageSquare color="#64748b" size={17} /></View>
                   <View style={styles.settingsFeedbackCopy}>
                     <Text style={styles.settingsMenuText}>意见反馈</Text>
-                    <Text style={styles.settingsLinkDescription}>报告问题或提出功能建议</Text>
+                    <Text style={styles.settingsFeedbackDescription}>报告问题或提出功能建议</Text>
                   </View>
                 </View>
                 <ExternalLink color="#94a3b8" size={17} />
@@ -5992,8 +5992,10 @@ const baseWorkspaceStyles = StyleSheet.create({
   },
   settingsMenuLabel: {
     alignItems: "center",
+    flex: 1,
     flexDirection: "row",
     gap: 12,
+    minWidth: 0,
   },
   settingsMenuIcon: {
     alignItems: "center",
@@ -6010,6 +6012,13 @@ const baseWorkspaceStyles = StyleSheet.create({
   },
   settingsFeedbackCopy: {
     flex: 1,
+    gap: 1,
+    minWidth: 0,
+  },
+  settingsFeedbackDescription: {
+    color: "#64748b",
+    fontSize: 12,
+    lineHeight: 17,
   },
   settingsFeedbackIcon: {
     backgroundColor: "#f1f5f9",

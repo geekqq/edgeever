@@ -17,6 +17,8 @@ import {
   Save,
   ReplaceAll,
   MoreHorizontal,
+  Maximize2,
+  Minimize2,
   Paperclip,
   Pencil,
   Sparkles,
@@ -49,13 +51,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditorToolbar } from "./EditorToolbar";
 import { ThemeToggle } from "./ThemeToggle";
 import { RevisionHistoryDialog } from "./dialogs/RevisionHistoryDialog";
 import { api } from "@/lib/api";
 import { consumeStandaloneMobileEditorReturn, openStandaloneMobileEditor } from "@/lib/mobile-editor";
 import { cn, formatDateTime, parseTagsText } from "@/lib/utils";
-import { docToMarkdown, markdownToDoc, type Notebook, type MemoDetail, type MemoEditSession, type TiptapDoc } from "@edgeever/shared";
+import {
+  docToMarkdown,
+  markdownToDoc,
+  type Notebook,
+  type MemoDetail,
+  type MemoEditSession,
+  type TiptapDoc,
+} from "@edgeever/shared";
+import {
+  DEFAULT_IMAGE_WIDTH_PERCENT,
+  IMAGE_WIDTH_PRESETS,
+  clampImageWidth,
+  parseImageWidth,
+} from "@edgeever/shared/image-display";
 import { codeBlockLowlight } from "@/lib/code-block";
 import { compressImageForUpload } from "@/lib/image-compression";
 import { localDb, type MemoUpdateSyncPayload } from "@/lib/local-db";
@@ -69,15 +85,6 @@ const SUPPORTED_PASTE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/g
 const MOBILE_EDITOR_QUERY = "(max-width: 639px)";
 const EDITOR_AUTO_SAVE_DELAY_MS = 1200;
 const MOBILE_DRAFT_PERSIST_DELAY_MS = 800;
-const DEFAULT_IMAGE_WIDTH_PERCENT = 72;
-const MIN_IMAGE_WIDTH_PERCENT = 25;
-const MAX_IMAGE_WIDTH_PERCENT = 100;
-const IMAGE_WIDTH_PRESETS = [
-  { width: 35, labelKey: "editor.imageSizeSmall" },
-  { width: 50, labelKey: "editor.imageSizeMedium" },
-  { width: 72, labelKey: "editor.imageSizeLarge" },
-  { width: 100, labelKey: "editor.imageSizeFull" },
-] as const;
 
 type NoteSearchMatch = {
   from: number;
@@ -224,22 +231,6 @@ const getImageFilesFromDataTransfer = (dataTransfer: DataTransfer | null) => {
   const files = fileItems.length > 0 ? fileItems : Array.from(dataTransfer.files ?? []);
 
   return files.filter((file) => SUPPORTED_PASTE_IMAGE_TYPES.has(file.type));
-};
-
-const clampImageWidth = (width: number) =>
-  Math.min(MAX_IMAGE_WIDTH_PERCENT, Math.max(MIN_IMAGE_WIDTH_PERCENT, Math.round(width)));
-
-const parseImageWidth = (value: unknown) => {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return clampImageWidth(value);
-  }
-
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const match = /(\d+(?:\.\d+)?)/.exec(value);
-  return match ? clampImageWidth(Number(match[1])) : null;
 };
 
 const ResizableImageNodeView = ({ editor, node, selected, updateAttributes }: NodeViewProps) => {
@@ -463,6 +454,8 @@ const MobileNotebookSelectSheet = ({
 
 type EditorPaneProps = {
   memo: MemoDetail | null;
+  desktopFocusMode: boolean;
+  onToggleDesktopFocusMode: () => void;
   mobileDefaultEditMemoId: string | null;
   preserveUnsavedContentFromMemoId?: string | null;
   saveBlocked?: boolean;
@@ -1076,6 +1069,8 @@ export const EditorPane = (props: EditorPaneProps) => {
 
 const RichEditorPane = ({
   memo,
+  desktopFocusMode,
+  onToggleDesktopFocusMode,
   mobileDefaultEditMemoId,
   preserveUnsavedContentFromMemoId: _preserveUnsavedContentFromMemoId,
   saveBlocked: _saveBlocked = false,
@@ -1098,6 +1093,7 @@ const RichEditorPane = ({
   selectionActionBar,
   onRequestMobileNativeEdit,
 }: RichEditorPaneProps) => {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const isSelectionMode = Boolean(selectionActionBar);
   const [title, setTitle] = useState("");
@@ -2318,6 +2314,24 @@ const RichEditorPane = ({
               </button>
             </div>
             <div className="hidden items-center gap-1 lg:flex">
+              <TooltipProvider delayDuration={350} skipDelayDuration={100}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant={desktopFocusMode ? "soft" : "ghost"}
+                      aria-label={t(desktopFocusMode ? "editor.exitFocusMode" : "editor.enterFocusMode")}
+                      aria-pressed={desktopFocusMode}
+                      onClick={onToggleDesktopFocusMode}
+                    >
+                      {desktopFocusMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t(desktopFocusMode ? "editor.exitFocusMode" : "editor.focusMode")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <Button size="icon" variant="ghost" title="上一条笔记" aria-label="上一条笔记" onClick={onOpenPreviousMemo} disabled={!hasPreviousMemo}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -2493,7 +2507,7 @@ const RichEditorPane = ({
           </div>
         </div>
 
-        <div className="space-y-3 px-4 pb-4 pt-4 sm:px-7">
+        <div className="space-y-3 px-4 pb-4 pt-4 sm:px-7 lg:space-y-0 lg:pb-1 lg:pt-2">
           <input
             value={title}
             readOnly={effectiveReadOnly}

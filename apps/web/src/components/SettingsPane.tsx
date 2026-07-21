@@ -179,7 +179,7 @@ export const SettingsPane = ({
       case "users":
         return isOwner ? (
           <SettingsGroup>
-            <UserManagementCard />
+            <UserManagementCard demoMode={demoMode} />
           </SettingsGroup>
         ) : null;
       case "data":

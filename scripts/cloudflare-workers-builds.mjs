@@ -260,7 +260,7 @@ const setup = async () => {
   const scripts = await request("GET", `/accounts/${accountId}/workers/scripts`);
   const worker = scripts?.find((script) => script.id === workerName);
   if (!worker?.tag) {
-    throw new Error(`Worker ${workerName} was not found. Complete the first bun run deploy before enabling Workers Builds.`);
+    throw new Error(`Worker ${workerName} was not found. Complete the first bun run deploy:manual before enabling Workers Builds.`);
   }
 
   const buildTokens = await request("GET", `/accounts/${accountId}/builds/tokens`);
