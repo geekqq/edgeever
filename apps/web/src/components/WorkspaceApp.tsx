@@ -374,7 +374,7 @@ const MobileNotebookPicker = ({
   onSelectAll: () => void;
   onSelect: (notebookId: string) => void;
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const listRef = useRef<HTMLDivElement | null>(null);
   const [notebookSearch, setNotebookSearch] = useState("");
   const tree = useMemo(() => buildNotebookTree(notebooks), [notebooks]);
@@ -641,7 +641,7 @@ export const WorkspaceApp = ({
   isLoggingOut: boolean;
   onLogout: () => void;
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
@@ -651,6 +651,7 @@ export const WorkspaceApp = ({
   const [activePane, setActivePane] = useState<Pane>(() => (isInitialSettingsRoute && !isInitialMobileEditorReturn ? "editor" : "memos"));
   const [memoView, setMemoView] = useState<MemoView>(() => (isTrashRoute ? "trash" : "notebook"));
   const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null);
+  const autoSelectedDemoNotebookRef = useRef(false);
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
   const [createdMemoEditId, setCreatedMemoEditId] = useState<string | null>(null);
   const [selectedMemoIds, setSelectedMemoIds] = useState<Set<string>>(new Set());
@@ -791,6 +792,26 @@ export const WorkspaceApp = ({
   });
 
   const notebooks = notebooksQuery.data?.notebooks ?? [];
+  useEffect(() => {
+    const english = i18n.resolvedLanguage === "en-US";
+    const preferredNotebookId = english ? "nb_demo_features_en" : "nb_demo_features";
+    const alternateNotebookId = english ? "nb_demo_features" : "nb_demo_features_en";
+
+    if (!notebooks.some((notebook) => notebook.id === preferredNotebookId)) {
+      return;
+    }
+
+    if (!autoSelectedDemoNotebookRef.current && selectedNotebookId === null) {
+      autoSelectedDemoNotebookRef.current = true;
+      setSelectedNotebookId(preferredNotebookId);
+      return;
+    }
+
+    if (selectedNotebookId === alternateNotebookId) {
+      setSelectedNotebookId(preferredNotebookId);
+    }
+  }, [i18n.resolvedLanguage, notebooks, selectedNotebookId]);
+
   const mobileEditorReturnMemoId = getMobileEditorReturnMemoId(location.search);
   const visibleActivePane: Pane = mobileEditorReturnMemoId ? "memos" : activePane;
   const defaultMemoNotebookId =

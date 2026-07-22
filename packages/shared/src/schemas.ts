@@ -54,6 +54,7 @@ export const MergeMemosSchema = z.object({
 export const LoginSchema = z.object({
   username: z.string().trim().min(1).max(80),
   password: z.string().min(1).max(512),
+  deviceId: z.string().trim().min(16).max(160).optional(),
 });
 
 export const ChangePasswordSchema = z

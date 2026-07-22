@@ -71,10 +71,11 @@ export const PasswordCard = ({ authRequired, demoMode }: PasswordCardProps) => {
             {t("password.demoReadOnly")}
           </p>
         ) : (
-          <form className="grid gap-3" onSubmit={handleSubmit}>
+          <form className="grid gap-3 lg:grid-cols-3 lg:gap-y-2.5" onSubmit={handleSubmit}>
           <label className="grid gap-1.5 text-sm font-medium text-slate-700">
             {t("password.currentPassword")}
             <Input
+              className="lg:h-9"
               type="password"
               autoComplete="current-password"
               value={currentPassword}
@@ -85,6 +86,7 @@ export const PasswordCard = ({ authRequired, demoMode }: PasswordCardProps) => {
           <label className="grid gap-1.5 text-sm font-medium text-slate-700">
             {t("password.newPassword")}
             <Input
+              className="lg:h-9"
               type="password"
               autoComplete="new-password"
               minLength={8}
@@ -96,6 +98,7 @@ export const PasswordCard = ({ authRequired, demoMode }: PasswordCardProps) => {
           <label className="grid gap-1.5 text-sm font-medium text-slate-700">
             {t("password.confirmPassword")}
             <Input
+              className="lg:h-9"
               type="password"
               autoComplete="new-password"
               minLength={8}
@@ -104,14 +107,14 @@ export const PasswordCard = ({ authRequired, demoMode }: PasswordCardProps) => {
               required
             />
           </label>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:col-span-3">
             <p
               className={feedback?.type === "error" ? "text-xs font-medium text-rose-600" : "text-xs font-medium text-emerald-700"}
               role={feedback ? "status" : undefined}
             >
               {feedback?.message}
             </p>
-            <Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto" type="submit" disabled={isSubmitting}>
+            <Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto lg:h-9 lg:px-3" type="submit" disabled={isSubmitting}>
               {isSubmitting ? t("password.changing") : t("password.change")}
             </Button>
           </div>

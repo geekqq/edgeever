@@ -16,6 +16,7 @@ import { WORKSPACE_PAGE_TITLE_CLASSNAME } from "@/lib/workspace-ui";
 import { cn } from "@/lib/utils";
 import { AdvancedPlayCard } from "./settings/AdvancedPlayCard";
 import { DataExportCard } from "./settings/DataExportCard";
+import { LoginDevicesCard } from "./settings/LoginDevicesCard";
 import { EvernoteImportGuideCard } from "./settings/EvernoteImportGuideCard";
 import { FeedbackLink } from "./settings/FeedbackLink";
 import { McpConfigCard } from "./settings/McpConfigCard";
@@ -200,6 +201,7 @@ export const SettingsPane = ({
         return (
           <SettingsGroup>
             <PasswordCard authRequired={authRequired} demoMode={demoMode} />
+            {demoMode ? null : <LoginDevicesCard authRequired={authRequired} />}
             <SessionCard authRequired={authRequired} isLoggingOut={isLoggingOut} onLogout={onLogout} />
           </SettingsGroup>
         );

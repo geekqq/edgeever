@@ -68,18 +68,21 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Text as RNText,
   type StyleProp,
   Switch,
+  useWindowDimensions,
   Vibration,
   View,
+  type ViewStyle,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Alert, Pressable, Text, TextInput } from "../components/LocalizedText";
-import Markdown, { type RenderRules } from "react-native-markdown-display";
+import Markdown, { type ASTNode, type RenderRules } from "react-native-markdown-display";
 import { SvgXml } from "react-native-svg";
-import { buildGitHubFeedbackUrl, buildRevisionDiffRows, createExcerpt, docToMarkdown, docToText, getNotebookDescendantIds, markdownToDoc, type ApiToken, type AuthUser, type MemoDetail, type MemoRevision, type MemoSummary, type Notebook, type ResourceListItem, type RevisionDiffRow, type TagSummary, type TiptapDoc } from "@edgeever/shared";
+import { buildGitHubFeedbackUrl, buildRevisionDiffRows, createExcerpt, docToMarkdown, docToText, getNotebookDescendantIds, markdownToDoc, resolveMemoContentDoc, type ApiToken, type AuthUser, type MemoDetail, type MemoRevision, type MemoSummary, type Notebook, type ResourceListItem, type RevisionDiffRow, type TagSummary, type TiptapDoc } from "@edgeever/shared";
 import { MOBILE_UI_METRICS, getMobileCenteredScrollOffset, getMobileNotebookSearchVisibleIds, toggleMobileMemoFilterMode, toggleMobileMemoSelection } from "@edgeever/shared/mobile-ui";
 import { clearMobileMemoDraft, clearMobileNewMemoDraft, readMobileMemoDraft, readMobileNewMemoDraft, writeMobileMemoDraft, writeMobileNewMemoDraft, type MobileMemoDraft } from "../lib/mobile-drafts";
 import {
@@ -123,6 +126,8 @@ import { showEdgeEverKeyboard } from "../../modules/edgeever-keyboard";
 import LocalTiptapEditor, { type LocalTiptapEditorRef } from "../components/LocalTiptapEditor";
 import { resolveMobileThemeStyles, useMobileTheme, type MobileResolvedTheme } from "../lib/mobile-theme";
 import { MobileUpdateCard } from "../components/MobileUpdateCard";
+import { MobileMermaidDiagram, MobileMermaidProvider } from "../components/MobileMermaid";
+import { getMobileMarkdownFenceLanguage, trimMobileMarkdownFenceContent } from "../lib/mobile-mermaid";
 
 const ALL_NOTES_ID = "all";
 const DEFAULT_MEMO_TITLE = "无标题笔记";
@@ -133,6 +138,9 @@ const resolveEditableMemoTitle = (title?: string | null) => {
 const MOBILE_APP_VERSION = Constants.expoConfig?.version ?? "0.1.2";
 const GITHUB_REPOSITORY_URL = "https://github.com/tianma-if/edgeever";
 const ANDROID_SYSTEM_NAVIGATION_FALLBACK = 48;
+const DETAIL_CONTENT_HORIZONTAL_PADDING = 16;
+const DETAIL_TABLE_FIT_COLUMN_COUNT = 3;
+const DETAIL_TABLE_MIN_COLUMN_WIDTH = 132;
 
 const formatExecutionEnvironment = (environment: string | null | undefined, localePreference: MobileLocaleMode = "system") => {
   const english = isEnglishMobileLocale(localePreference);
@@ -237,6 +245,7 @@ export const WorkspaceScreen = () => {
   const dataScope = createMobileDataScope(session?.baseUrl ?? "", session?.user?.id);
   const [activeView, setActiveView] = useState<MobileView>("notes");
   const [activeNotebookId, setActiveNotebookId] = useState<string>(ALL_NOTES_ID);
+  const autoSelectedDemoNotebookRef = useRef(false);
   const [memoView, setMemoView] = useState<MemoView>("notebook");
   const [memoFilterMode, setMemoFilterMode] = useState<MemoFilterMode>("all");
   const [memoSortMode, setMemoSortMode] = useState<MemoSortMode>("updated-desc");
@@ -281,6 +290,26 @@ export const WorkspaceScreen = () => {
   });
 
   const notebooks = notebooksQuery.data?.notebooks ?? [];
+  useEffect(() => {
+    const english = isEnglishMobileLocale(localePreference);
+    const preferredNotebookId = english ? "nb_demo_features_en" : "nb_demo_features";
+    const alternateNotebookId = english ? "nb_demo_features" : "nb_demo_features_en";
+
+    if (!notebooks.some((notebook) => notebook.id === preferredNotebookId)) {
+      return;
+    }
+
+    if (!autoSelectedDemoNotebookRef.current && activeNotebookId === ALL_NOTES_ID) {
+      autoSelectedDemoNotebookRef.current = true;
+      setActiveNotebookId(preferredNotebookId);
+      return;
+    }
+
+    if (activeNotebookId === alternateNotebookId) {
+      setActiveNotebookId(preferredNotebookId);
+    }
+  }, [activeNotebookId, localePreference, notebooks]);
+
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null;
   const activeNotebookDescendantIds = useMemo(
     () => (activeNotebookId === ALL_NOTES_ID ? [] : getNotebookDescendantIds(notebooks, activeNotebookId)),
@@ -4020,6 +4049,8 @@ const MemoDetailModal = ({
 }) => {
   const { session } = useSession();
   const { resolvedTheme } = useMobileTheme();
+  const { resolvedLocale } = useMobileLocale();
+  const { width: viewportWidth } = useWindowDimensions();
   const safeAreaInsets = useSafeAreaInsets();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -4031,18 +4062,86 @@ const MemoDetailModal = ({
     () => resolveMobileThemeStyles(detailMarkdownStyles, resolvedTheme),
     [resolvedTheme]
   );
-  const detailMarkdownRules = useMemo<RenderRules>(() => ({
-    image: (node, _children, _parents, markdownStyles) => (
-      <AuthenticatedResourceImage
-        alt={String(node.attributes.alt ?? "")}
-        fitAspect
-        key={node.key}
-        resizeMode="contain"
-        source={getAuthenticatedResourceSource(String(node.attributes.src ?? ""), session)}
-        style={markdownStyles._VIEW_SAFE_image}
-      />
-    ),
-  }), [session]);
+  const detailMarkdownRules = useMemo<RenderRules>(() => {
+    const availableTableWidth = Math.max(0, viewportWidth - DETAIL_CONTENT_HORIZONTAL_PADDING * 2);
+    const getTableColumnCount = (node: ASTNode, parents: ASTNode[]) => {
+      const table = node.type === "table" ? node : parents.find((parent) => parent.type === "table");
+      const tableSection = table?.children.find((child) => child.type === "thead" || child.type === "tbody");
+      const firstRow = tableSection?.children.find((child) => child.type === "tr");
+      return Math.max(1, firstRow?.children.filter((child) => child.type === "th" || child.type === "td").length ?? 1);
+    };
+    const renderTableCell = (node: ASTNode, children: ReactNode[], parents: ASTNode[], markdownStyles: Record<string, StyleProp<ViewStyle>>, isHeader: boolean) => {
+      const columnCount = getTableColumnCount(node, parents);
+      const row = parents.find((parent) => parent.type === "tr");
+      const cellIndex = row?.children.findIndex((child) => child.key === node.key) ?? -1;
+      const isLastCell = cellIndex === (row?.children.length ?? 0) - 1;
+      const wideCellStyle = columnCount > DETAIL_TABLE_FIT_COLUMN_COUNT
+        ? { flex: 0, width: DETAIL_TABLE_MIN_COLUMN_WIDTH }
+        : undefined;
+
+      return (
+        <View
+          key={node.key}
+          style={[
+            markdownStyles[isHeader ? "_VIEW_SAFE_th" : "_VIEW_SAFE_td"],
+            wideCellStyle,
+            !isLastCell && markdownStyles._VIEW_SAFE_tableCellDivider,
+          ]}
+        >
+          {children}
+        </View>
+      );
+    };
+
+    return {
+      fence: (node, _children, _parents, markdownStyles, inheritedStyles = {}) => {
+        const language = getMobileMarkdownFenceLanguage((node as ASTNode & { sourceInfo?: string }).sourceInfo);
+        const content = trimMobileMarkdownFenceContent(node.content);
+        if (language === "mermaid") {
+          return (
+            <MobileMermaidDiagram
+              key={node.key}
+              locale={resolvedLocale}
+              source={content}
+              theme={resolvedTheme}
+            />
+          );
+        }
+        return <RNText key={node.key} style={[inheritedStyles, markdownStyles.fence]}>{content}</RNText>;
+      },
+      image: (node, _children, _parents, markdownStyles) => (
+        <AuthenticatedResourceImage
+          alt={String(node.attributes.alt ?? "")}
+          fitAspect
+          key={node.key}
+          resizeMode="contain"
+          source={getAuthenticatedResourceSource(String(node.attributes.src ?? ""), session)}
+          style={markdownStyles._VIEW_SAFE_image}
+        />
+      ),
+      table: (node, children, parents, markdownStyles) => {
+        const columnCount = getTableColumnCount(node, parents);
+        const tableWidth = columnCount > DETAIL_TABLE_FIT_COLUMN_COUNT
+          ? columnCount * DETAIL_TABLE_MIN_COLUMN_WIDTH
+          : availableTableWidth;
+
+        return (
+          <ScrollView
+            contentContainerStyle={markdownStyles._VIEW_SAFE_tableScrollContent}
+            horizontal
+            key={node.key}
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={columnCount > DETAIL_TABLE_FIT_COLUMN_COUNT}
+            style={markdownStyles._VIEW_SAFE_tableScroll}
+          >
+            <View style={[markdownStyles._VIEW_SAFE_table, { width: tableWidth }]}>{children}</View>
+          </ScrollView>
+        );
+      },
+      td: (node, children, parents, markdownStyles) => renderTableCell(node, children, parents, markdownStyles, false),
+      th: (node, children, parents, markdownStyles) => renderTableCell(node, children, parents, markdownStyles, true),
+    };
+  }, [resolvedLocale, resolvedTheme, session, viewportWidth]);
   const detailText = memo?.contentMarkdown || memo?.contentText || "没有正文内容";
   const searchMatches = useMemo(() => getTextSearchMatches(detailText, searchQuery), [detailText, searchQuery]);
   const searchMatchLabel = searchQuery.trim() ? `${searchMatches.length > 0 ? activeMatchIndex + 1 : 0}/${searchMatches.length}` : "0/0";
@@ -4162,7 +4261,9 @@ const MemoDetailModal = ({
             {searchOpen && searchQuery.trim() ? (
               <HighlightedDetailText activeIndex={activeMatchIndex} matches={searchMatches} text={detailText} />
             ) : (
-              <Markdown rules={detailMarkdownRules} style={themedDetailMarkdownStyles}>{detailText}</Markdown>
+              <MobileMermaidProvider theme={resolvedTheme}>
+                <Markdown rules={detailMarkdownRules} style={themedDetailMarkdownStyles}>{detailText}</Markdown>
+              </MobileMermaidProvider>
             )}
           </ScrollView>
         ) : (
@@ -4267,7 +4368,9 @@ const RichEditorModal = ({
   const { resolvedLocale } = useMobileLocale();
   const { resolvedTheme } = useMobileTheme();
   const restoredDraft = initialDraft?.expectedRevision === memo?.revision ? initialDraft : null;
-  const initialContentJson = restoredDraft ? markdownToDoc(restoredDraft.contentMarkdown) : memo?.contentJson ?? markdownToDoc(memo?.contentMarkdown ?? "");
+  const initialContentJson = restoredDraft
+    ? markdownToDoc(restoredDraft.contentMarkdown)
+    : resolveMemoContentDoc(memo?.contentJson, memo?.contentMarkdown);
   const editorRef = useRef<LocalTiptapEditorRef>(null);
   const resourceDataUrlCacheRef = useRef(new Map<string, Promise<string | null>>());
   const initialFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -5903,6 +6006,43 @@ const detailMarkdownStyles = StyleSheet.create({
   strong: {
     fontWeight: "800",
   },
+  table: {
+    backgroundColor: "#ffffff",
+    borderColor: "#d8d8d8",
+    borderRadius: 2,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  tableCellDivider: {
+    borderRightColor: "#dedede",
+    borderRightWidth: 1,
+  },
+  tableScroll: {
+    marginBottom: 10,
+    marginTop: 10,
+    maxWidth: "100%",
+  },
+  tableScrollContent: {
+    flexGrow: 1,
+  },
+  td: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  th: {
+    backgroundColor: "#f2f2f2",
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  tr: {
+    borderBottomColor: "#dedede",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+  },
 });
 
 const baseWorkspaceStyles = StyleSheet.create({
@@ -7520,7 +7660,7 @@ const baseWorkspaceStyles = StyleSheet.create({
   },
   detailContent: {
     paddingBottom: 112,
-    paddingHorizontal: 16,
+    paddingHorizontal: DETAIL_CONTENT_HORIZONTAL_PADDING,
     paddingTop: 16,
   },
   detailTitle: {

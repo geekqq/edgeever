@@ -1,5 +1,6 @@
 import type {
   AuthSession,
+  LoginDeviceSession,
   InstanceUser,
   ApiToken,
   CreatedApiToken,
@@ -49,6 +50,29 @@ type ListApiTokensResponse = {
 
 type ListUsersResponse = { users: InstanceUser[] };
 type UserResponse = { user: InstanceUser };
+type ListLoginDeviceSessionsResponse = { sessions: LoginDeviceSession[] };
+
+const WEB_DEVICE_ID_STORAGE_KEY = "edgeever.web.device-id";
+
+const createWebDeviceId = () => {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid
+    ? `web-${uuid}`
+    : `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+};
+
+const getOrCreateWebDeviceId = () => {
+  try {
+    const existing = window.localStorage.getItem(WEB_DEVICE_ID_STORAGE_KEY);
+    if (existing) return existing;
+
+    const deviceId = createWebDeviceId();
+    window.localStorage.setItem(WEB_DEVICE_ID_STORAGE_KEY, deviceId);
+    return deviceId;
+  } catch {
+    return createWebDeviceId();
+  }
+};
 
 type MemoResponse = {
   memo: MemoDetail;
@@ -119,10 +143,19 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
 export const api = {
   getSession: () => request<AuthSession>("/api/v1/auth/session"),
 
+  listLoginDeviceSessions: () =>
+    request<ListLoginDeviceSessionsResponse>("/api/v1/auth/sessions"),
+
+  revokeLoginDeviceSession: (sessionId: string) =>
+    request<{ ok: true }>(`/api/v1/auth/sessions/${sessionId}`, { method: "DELETE" }),
+
+  revokeOtherLoginDeviceSessions: () =>
+    request<{ ok: true }>("/api/v1/auth/sessions", { method: "DELETE" }),
+
   login: (payload: { username: string; password: string }) =>
     request<AuthSession>("/api/v1/auth/login", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, deviceId: getOrCreateWebDeviceId() }),
     }),
 
   changePassword: (payload: { currentPassword: string; newPassword: string; confirmPassword: string }) =>

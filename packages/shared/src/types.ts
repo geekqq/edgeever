@@ -134,6 +134,15 @@ export type AuthSession = {
   sessionToken?: string;
 };
 
+export type LoginDeviceSession = {
+  id: string;
+  userAgent: string | null;
+  isCurrent: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+};
+
 export type ApiError = {
   error: {
     code: string;

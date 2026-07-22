@@ -1,7 +1,10 @@
 'use dom';
 
+import "mermaid/dist/mermaid.min.js";
 import Image from "@tiptap/extension-image";
+import CodeBlock from "@tiptap/extension-code-block";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TableKit } from "@tiptap/extension-table";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { TiptapDoc } from "@edgeever/shared";
@@ -18,12 +21,15 @@ import {
   getMobileEditorImageScaleLabel,
   getMobileEditorImageWidthPresetLabel,
   getMobileEditorPlaceholder,
+  getMobileEditorTableMenuCopy,
   getMobileEditorToolbarActionLabel,
   getMobileEditorToolbarLabel,
+  isMobileEditorActionDisabledInTableHeader,
+  type MobileEditorTableActionId,
   type MobileEditorToolbarActionId,
 } from "@edgeever/shared/mobile-editor";
 import { useDOMImperativeHandle, type DOMImperativeFactory, type DOMProps } from "expo/dom";
-import { useCallback, useEffect, useMemo, useRef, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import {
   createMobileImageUploadPlaceholderSource,
   isMobileImageUploadPlaceholderSource,
@@ -45,6 +51,7 @@ export interface LocalTiptapEditorRef extends DOMImperativeFactory {
 }
 
 type LocalTiptapEditorProps = {
+  mode?: "editor";
   autoFocus?: boolean;
   baseUrl: string;
   content: EditorDoc;
@@ -59,11 +66,150 @@ type LocalTiptapEditorProps = {
   theme: "light" | "dark";
 };
 
+type MermaidRendererProps = {
+  diagramsJson: string;
+  dom?: DOMProps;
+  mode: "mermaid-renderer";
+  onRendered: (resultsJson: string) => Promise<void>;
+  theme: "light" | "dark";
+};
+
 const CHANGE_IDLE_MS = 500;
 const TRANSIENT_IMAGE_UPLOAD_META = "edgeeverImageUploadPlaceholder";
 const ignoreSearchResult = async () => undefined;
 
-export default function LocalTiptapEditor(props: LocalTiptapEditorProps) {
+export default function LocalTiptapEditor(props: LocalTiptapEditorProps | MermaidRendererProps) {
+  return props.mode === "mermaid-renderer"
+    ? <MermaidRenderRuntime {...props} />
+    : <LocalTiptapEditorImpl {...props} />;
+}
+
+const MermaidRenderRuntime = (props: MermaidRendererProps) => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const renderDiagrams = async () => {
+      let sources: string[] = [];
+      try {
+        const parsed = JSON.parse(props.diagramsJson) as unknown;
+        sources = Array.isArray(parsed)
+          ? parsed.filter((source): source is string => typeof source === "string" && source.trim().length > 0)
+          : [];
+      } catch {
+        sources = [];
+      }
+
+      const mermaid = await loadMermaid();
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        suppressErrorRendering: true,
+        theme: "base",
+        themeVariables: getMobileMermaidThemeVariables(props.theme),
+        flowchart: { htmlLabels: false },
+      });
+
+      const results: Array<{ source: string; svg: string | null }> = [];
+      for (const source of sources) {
+        try {
+          const valid = await mermaid.parse(source, { suppressErrors: true });
+          if (!valid) {
+            throw new Error("Invalid Mermaid diagram");
+          }
+          mermaidRenderSequence += 1;
+          const { svg } = await mermaid.render(`edgeever-mobile-mermaid-${mermaidRenderSequence}`, source);
+          results.push({ source, svg: inlineMermaidSvgStyles(svg) });
+        } catch {
+          results.push({ source, svg: null });
+        }
+      }
+
+      if (!cancelled) {
+        await props.onRendered(JSON.stringify(results));
+      }
+    };
+
+    void renderDiagrams().catch(() => {
+      if (!cancelled) {
+        void props.onRendered("[]");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.diagramsJson, props.onRendered, props.theme]);
+
+  return null;
+};
+
+const inlineMermaidSvgStyles = (svg: string) => {
+  const container = document.createElement("div");
+  container.style.cssText = "position:fixed;left:-10000px;top:-10000px;visibility:hidden;";
+  container.innerHTML = svg;
+  document.body.append(container);
+
+  const root = container.querySelector("svg");
+  if (!root) {
+    container.remove();
+    return svg;
+  }
+
+  for (const foreignObject of root.querySelectorAll("foreignObject")) {
+    const label = foreignObject.textContent?.replace(/\s+/g, " ").trim();
+    if (!label) {
+      foreignObject.remove();
+      continue;
+    }
+    const x = Number.parseFloat(foreignObject.getAttribute("x") ?? "0");
+    const y = Number.parseFloat(foreignObject.getAttribute("y") ?? "0");
+    const width = Number.parseFloat(foreignObject.getAttribute("width") ?? "0");
+    const height = Number.parseFloat(foreignObject.getAttribute("height") ?? "0");
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", String(x + width / 2));
+    text.setAttribute("y", String(y + height / 2));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("dominant-baseline", "central");
+    text.setAttribute("font-size", "16px");
+    text.textContent = label;
+    foreignObject.replaceWith(text);
+  }
+
+  const properties = [
+    "color",
+    "fill",
+    "fill-opacity",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "opacity",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-dashoffset",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-opacity",
+    "stroke-width",
+    "text-anchor",
+  ] as const;
+
+  for (const element of root.querySelectorAll<SVGElement>("*")) {
+    const computed = getComputedStyle(element);
+    for (const property of properties) {
+      const value = computed.getPropertyValue(property);
+      if (value) {
+        element.setAttribute(property, value);
+      }
+    }
+  }
+
+  const serialized = new XMLSerializer().serializeToString(root);
+  container.remove();
+  return serialized;
+};
+
+function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
+  const [tableMenuOpen, setTableMenuOpen] = useState(false);
   const startedAtRef = useRef(performance.now());
   const changeTimerRef = useRef<number | null>(null);
   const imageUploadInFlightRef = useRef(false);
@@ -83,12 +229,20 @@ export default function LocalTiptapEditor(props: LocalTiptapEditorProps) {
     () => createProtectedImageExtension(props.baseUrl, props.locale, (source) => onLoadResourceRef.current(source)),
     [props.baseUrl, props.locale]
   );
+  const mermaidCodeBlockExtension = useMemo(
+    () => createMobileCodeBlockExtension(props.locale, props.theme),
+    [props.locale, props.theme]
+  );
 
   const editor = useEditor({
     autofocus: props.autoFocus ? "end" : false,
     extensions: [
-      StarterKit,
+      StarterKit.configure({ codeBlock: false }),
+      mermaidCodeBlockExtension,
       protectedImageExtension,
+      TableKit.configure({
+        table: { renderWrapper: true },
+      }),
       Placeholder.configure({
         placeholder: getMobileEditorPlaceholder(props.locale),
       }),
@@ -249,9 +403,19 @@ export default function LocalTiptapEditor(props: LocalTiptapEditorProps) {
     editor,
     selector: ({ editor: activeEditor }) =>
       (activeEditor?.isActive("bold") ? MOBILE_EDITOR_ACTIVE_FLAGS.bold : 0) |
+      (activeEditor?.isActive("codeBlock", { language: "mermaid" }) ? MOBILE_EDITOR_ACTIVE_FLAGS.mermaid : 0) |
       (activeEditor?.isActive("bulletList") ? MOBILE_EDITOR_ACTIVE_FLAGS.bulletList : 0) |
-      (activeEditor?.isActive("blockquote") ? MOBILE_EDITOR_ACTIVE_FLAGS.blockquote : 0),
+      (activeEditor?.isActive("blockquote") ? MOBILE_EDITOR_ACTIVE_FLAGS.blockquote : 0) |
+      (activeEditor?.isActive("table") ? MOBILE_EDITOR_ACTIVE_FLAGS.table : 0) |
+      (activeEditor?.isActive("tableHeader") ? MOBILE_EDITOR_ACTIVE_FLAGS.tableHeader : 0),
   });
+  const tableMenuCopy = getMobileEditorTableMenuCopy(props.locale);
+
+  useEffect(() => {
+    if (!(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table)) {
+      setTableMenuOpen(false);
+    }
+  }, [toolbarState]);
 
   const insertImage = async () => {
     if (!editor || imageUploadInFlightRef.current) {
@@ -272,45 +436,158 @@ export default function LocalTiptapEditor(props: LocalTiptapEditorProps) {
     }
   };
 
+  const runTableAction = (action: MobileEditorTableActionId) => {
+    const chain = editor?.chain().focus();
+    if (!chain) {
+      return;
+    }
+
+    switch (action) {
+      case "insertTable":
+        chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+        return;
+      case "addTableRow":
+        chain.addRowAfter().run();
+        return;
+      case "deleteTableRow":
+        if (!editor?.isActive("tableHeader")) {
+          chain.deleteRow().run();
+        }
+        return;
+      case "addTableColumn":
+        chain.addColumnAfter().run();
+        return;
+      case "deleteTableColumn":
+        chain.deleteColumn().run();
+        return;
+      case "toggleTableHeader":
+        chain.toggleHeaderRow().run();
+        return;
+      case "deleteTable":
+        chain.deleteTable().run();
+    }
+  };
+
   const toolbarIcons: Record<MobileEditorToolbarActionId, ReactNode> = {
     image: <ImagePlusIcon />,
+    mermaid: <DiagramIcon />,
     bold: <BoldIcon />,
     bulletList: <ListIcon />,
     blockquote: <QuoteIcon />,
     horizontalRule: <MinusIcon />,
+    insertTable: <TableGridIcon />,
+    addTableRow: null,
+    deleteTableRow: null,
+    addTableColumn: null,
+    deleteTableColumn: null,
+    toggleTableHeader: null,
+    deleteTable: null,
   };
   const toolbarHandlers: Record<MobileEditorToolbarActionId, () => void> = {
     image: () => void insertImage(),
+    mermaid: () => {
+      if (!editor) {
+        return;
+      }
+      if (editor.isActive("codeBlock")) {
+        editor.chain().focus().updateAttributes("codeBlock", { language: "mermaid" }).run();
+        return;
+      }
+      editor.chain().focus().insertContent({
+        type: "codeBlock",
+        attrs: { language: "mermaid" },
+        content: [{ type: "text", text: "flowchart LR\n  A[Start] --> B[End]" }],
+      }).run();
+    },
     bold: () => editor?.chain().focus().toggleBold().run(),
     bulletList: () => editor?.chain().focus().toggleBulletList().run(),
     blockquote: () => editor?.chain().focus().toggleBlockquote().run(),
     horizontalRule: () => editor?.chain().focus().setHorizontalRule().run(),
+    insertTable: () => runTableAction("insertTable"),
+    addTableRow: () => runTableAction("addTableRow"),
+    deleteTableRow: () => runTableAction("deleteTableRow"),
+    addTableColumn: () => runTableAction("addTableColumn"),
+    deleteTableColumn: () => runTableAction("deleteTableColumn"),
+    toggleTableHeader: () => runTableAction("toggleTableHeader"),
+    deleteTable: () => runTableAction("deleteTable"),
   };
 
   return (
     <div className="edgeever-editor-shell">
       <style>{getEditorStyles(props.theme)}</style>
       <div aria-label={getMobileEditorToolbarLabel(props.locale)} className="edgeever-editor-toolbar" role="toolbar">
-        {MOBILE_EDITOR_TOOLBAR_ACTIONS.map((action) => (
-          <ToolbarButton
-            key={action.id}
-            active={action.activeFlag > 0 && Boolean(toolbarState & action.activeFlag)}
-            icon={toolbarIcons[action.id]}
-            label={getMobileEditorToolbarActionLabel(action.id, props.locale)}
-            onRun={toolbarHandlers[action.id]}
-          />
-        ))}
+        {MOBILE_EDITOR_TOOLBAR_ACTIONS
+          .filter((action) => !action.requiresTable
+            && (!(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table) || action.id !== "insertTable"))
+          .map((action) => (
+            <ToolbarButton
+              key={action.id}
+              active={action.activeFlag > 0 && Boolean(toolbarState & action.activeFlag)}
+              disabled={action.id === "insertTable" && Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table)}
+              icon={toolbarIcons[action.id]}
+              label={getMobileEditorToolbarActionLabel(action.id, props.locale)}
+              onRun={toolbarHandlers[action.id]}
+            />
+          ))}
+        {Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table) && (
+          <button
+            aria-label={tableMenuCopy.title}
+            className="edgeever-table-menu-trigger"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => setTableMenuOpen(true)}
+            type="button"
+          >
+            <TableGridIcon />
+            <span>{tableMenuCopy.title}</span>
+          </button>
+        )}
       </div>
+      {Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table) && tableMenuOpen && (
+        <div className="edgeever-table-menu-backdrop" role="presentation" onMouseDown={() => setTableMenuOpen(false)}>
+          <section
+            aria-label={tableMenuCopy.title}
+            aria-modal="true"
+            className="edgeever-table-menu-sheet"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="edgeever-table-menu-handle" aria-hidden="true" />
+            <div className="edgeever-table-menu-header">
+              <strong>{tableMenuCopy.title}</strong>
+              <button type="button" onClick={() => setTableMenuOpen(false)}>{tableMenuCopy.close}</button>
+            </div>
+            <div className="edgeever-table-menu-actions">
+              {MOBILE_EDITOR_TOOLBAR_ACTIONS.filter((action) => action.requiresTable).map((action) => (
+                <button
+                  key={action.id}
+                  className={action.id === "deleteTable" ? "is-destructive" : undefined}
+                  disabled={isMobileEditorActionDisabledInTableHeader(action.id)
+                    && Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.tableHeader)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    setTableMenuOpen(false);
+                    toolbarHandlers[action.id]();
+                  }}
+                  type="button"
+                >
+                  {getMobileEditorToolbarActionLabel(action.id, props.locale)}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
       <EditorContent editor={editor} />
     </div>
   );
 }
 
-const ToolbarButton = ({ active = false, icon, label, onRun }: { active?: boolean; icon: ReactNode; label: string; onRun: () => void }) => (
+const ToolbarButton = ({ active = false, disabled = false, icon, label, onRun }: { active?: boolean; disabled?: boolean; icon: ReactNode; label: string; onRun: () => void }) => (
   <button
     aria-label={label}
     aria-pressed={active}
     className={active ? "is-active" : undefined}
+    disabled={disabled}
     onMouseDown={(event) => event.preventDefault()}
     onClick={onRun}
     type="button"
@@ -380,6 +657,15 @@ const BoldIcon = () => (
   </EditorIcon>
 );
 
+const DiagramIcon = () => (
+  <EditorIcon size={18} strokeWidth={2}>
+    <rect height="5" rx="1" width="7" x="2" y="3" />
+    <rect height="5" rx="1" width="7" x="15" y="16" />
+    <path d="M9 5.5h3a3 3 0 0 1 3 3v5a3 3 0 0 0 3 3" />
+    <path d="m15 13 3 3-3 3" />
+  </EditorIcon>
+);
+
 const ListIcon = () => (
   <EditorIcon size={18} strokeWidth={2.2}>
     <path d="M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13" />
@@ -396,6 +682,13 @@ const QuoteIcon = () => (
 const MinusIcon = () => (
   <EditorIcon size={18} strokeWidth={2.4}>
     <path d="M5 12h14" />
+  </EditorIcon>
+);
+
+const TableGridIcon = () => (
+  <EditorIcon size={18} strokeWidth={2}>
+    <rect height="16" rx="1" width="18" x="3" y="4" />
+    <path d="M3 10h18M9 4v16M15 4v16" />
   </EditorIcon>
 );
 
@@ -453,6 +746,165 @@ const applyImageWidth = (
   element.dataset.width = String(width);
   return width;
 };
+
+let mermaidRenderSequence = 0;
+
+const getMobileMermaidThemeVariables = (theme: "light" | "dark") => {
+  const ink = theme === "dark" ? "#cbd5e1" : "#26384a";
+  const surface = theme === "dark" ? "#0f172a" : "#ffffff";
+  return {
+    background: "transparent",
+    primaryColor: surface,
+    primaryTextColor: ink,
+    primaryBorderColor: ink,
+    lineColor: ink,
+    textColor: ink,
+    mainBkg: surface,
+    nodeBorder: ink,
+    edgeLabelBackground: surface,
+    actorBkg: surface,
+    actorBorder: ink,
+    actorTextColor: ink,
+    signalColor: ink,
+    signalTextColor: ink,
+  };
+};
+
+const loadMermaid = () => {
+  const mermaid = (globalThis as typeof globalThis & {
+    mermaid?: typeof import("mermaid")["default"];
+  }).mermaid;
+  if (!mermaid) {
+    return Promise.reject(new Error("Mermaid runtime unavailable"));
+  }
+  return Promise.resolve(mermaid);
+};
+
+const createMobileCodeBlockExtension = (
+  locale: "zh-CN" | "en-US",
+  theme: "light" | "dark"
+) => CodeBlock.extend({
+  addNodeView() {
+    return ({ node }) => {
+      const wrapper = document.createElement("div");
+      const preview = document.createElement("div");
+      const message = document.createElement("p");
+      const svgContainer = document.createElement("div");
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      preview.contentEditable = "false";
+      preview.className = "edgeever-mermaid-preview";
+      preview.tabIndex = 0;
+      preview.setAttribute("role", "button");
+      preview.addEventListener("click", () => wrapper.classList.toggle("is-source-visible"));
+      preview.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          wrapper.classList.toggle("is-source-visible");
+        }
+      });
+      message.className = "edgeever-mermaid-message";
+      svgContainer.className = "edgeever-mermaid-svg";
+      svgContainer.setAttribute("role", "img");
+      svgContainer.setAttribute("aria-label", locale === "en-US" ? "Mermaid diagram preview" : "Mermaid 图表预览");
+      pre.append(code);
+      wrapper.append(preview, pre);
+
+      let currentNode = node;
+      let renderTimer: number | null = null;
+      let renderRequest = 0;
+
+      const clearRender = () => {
+        renderRequest += 1;
+        if (renderTimer !== null) {
+          window.clearTimeout(renderTimer);
+          renderTimer = null;
+        }
+      };
+
+      const renderNode = () => {
+        clearRender();
+        const language = typeof currentNode.attrs.language === "string"
+          ? currentNode.attrs.language.toLowerCase()
+          : "plaintext";
+        const isMermaid = language === "mermaid";
+        wrapper.className = isMermaid ? "edgeever-mermaid-code-block" : "edgeever-code-block";
+        wrapper.dataset.language = language;
+        preview.hidden = !isMermaid;
+        code.setAttribute("aria-label", isMermaid
+          ? (locale === "en-US" ? "Mermaid source" : "Mermaid 源码")
+          : (locale === "en-US" ? "Code source" : "代码源码"));
+        if (!isMermaid) {
+          preview.replaceChildren();
+          return;
+        }
+
+        const source = currentNode.textContent.trim();
+        if (!source) {
+          message.className = "edgeever-mermaid-message";
+          message.textContent = locale === "en-US" ? "Enter Mermaid source below." : "请在下方输入 Mermaid 源码。";
+          preview.replaceChildren(message);
+          return;
+        }
+
+        const activeRequest = renderRequest;
+        renderTimer = window.setTimeout(() => {
+          message.className = "edgeever-mermaid-message";
+          message.textContent = locale === "en-US" ? "Rendering diagram…" : "正在渲染图表…";
+          preview.replaceChildren(message);
+          void loadMermaid()
+            .then(async (mermaid) => {
+              mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: "strict",
+                suppressErrorRendering: true,
+                theme: "base",
+                themeVariables: getMobileMermaidThemeVariables(theme),
+              });
+              const valid = await mermaid.parse(source, { suppressErrors: true });
+              if (!valid) {
+                throw new Error("Invalid Mermaid diagram");
+              }
+              mermaidRenderSequence += 1;
+              return mermaid.render(`edgeever-mobile-editor-mermaid-${mermaidRenderSequence}`, source);
+            })
+            .then(({ svg }) => {
+              if (activeRequest !== renderRequest) {
+                return;
+              }
+              svgContainer.innerHTML = svg;
+              preview.replaceChildren(svgContainer);
+            })
+            .catch(() => {
+              if (activeRequest !== renderRequest) {
+                return;
+              }
+              message.className = "edgeever-mermaid-error";
+              message.textContent = locale === "en-US"
+                ? "Unable to render this diagram. Check its syntax."
+                : "无法渲染此图表，请检查语法。";
+              preview.replaceChildren(message);
+            });
+        }, 300);
+      };
+
+      renderNode();
+      return {
+        dom: wrapper,
+        contentDOM: code,
+        update: (updatedNode) => {
+          if (updatedNode.type !== currentNode.type) {
+            return false;
+          }
+          currentNode = updatedNode;
+          renderNode();
+          return true;
+        },
+        destroy: clearRender,
+      };
+    };
+  },
+});
 
 const createMobileImageSizeControls = (
   locale: "zh-CN" | "en-US",
@@ -832,6 +1284,19 @@ const getEditorStyles = (theme: "light" | "dark") => `
   .edgeever-editor-toolbar::-webkit-scrollbar { display: none; }
   .edgeever-editor-toolbar button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 36px; min-height: 32px; padding: 0; border: 1px solid transparent; border-radius: 999px; background: transparent; color: ${theme === "dark" ? "#cbd5e1" : "#64748b"}; }
   .edgeever-editor-toolbar button:active, .edgeever-editor-toolbar button.is-active { border-color: ${theme === "dark" ? "#166534" : "#bbf7d0"}; background: ${theme === "dark" ? "#14532d" : "#ecfdf5"}; color: ${theme === "dark" ? "#86efac" : "#047857"}; }
+  .edgeever-editor-toolbar button:disabled { opacity: 0.38; }
+  .edgeever-editor-toolbar .edgeever-table-menu-trigger { gap: 6px; width: auto; padding-inline: 10px; font-size: 13px; font-weight: 700; }
+  .edgeever-table-menu-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; background: ${theme === "dark" ? "rgba(2, 6, 23, 0.62)" : "rgba(15, 23, 42, 0.22)"}; }
+  .edgeever-table-menu-sheet { width: 100%; border-radius: 18px 18px 0 0; padding: 8px 0 max(10px, env(safe-area-inset-bottom)); background: ${theme === "dark" ? "#1e293b" : "#fff"}; box-shadow: 0 -18px 45px rgba(15, 23, 42, 0.16); }
+  .edgeever-table-menu-handle { width: 38px; height: 4px; margin: 2px auto 8px; border-radius: 999px; background: #cbd5e1; }
+  .edgeever-table-menu-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid ${theme === "dark" ? "#334155" : "#f1f5f9"}; padding: 0 16px 10px; }
+  .edgeever-table-menu-header strong { color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; font-size: 16px; }
+  .edgeever-table-menu-header button { min-height: 32px; border: 0; border-radius: 999px; padding: 6px 10px; background: ${theme === "dark" ? "#334155" : "#f8fafc"}; color: ${theme === "dark" ? "#cbd5e1" : "#64748b"}; font: inherit; font-size: 14px; font-weight: 650; }
+  .edgeever-table-menu-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; }
+  .edgeever-table-menu-actions button { min-height: 48px; border: 0; border-radius: 10px; padding: 8px; background: ${theme === "dark" ? "#334155" : "#f8fafc"}; color: ${theme === "dark" ? "#e2e8f0" : "#334155"}; font: inherit; font-size: 15px; font-weight: 650; }
+  .edgeever-table-menu-actions button:active { background: ${theme === "dark" ? "#14532d" : "#ecfdf5"}; color: ${theme === "dark" ? "#86efac" : "#047857"}; }
+  .edgeever-table-menu-actions button:disabled { color: #94a3b8; opacity: 0.55; }
+  .edgeever-table-menu-actions button.is-destructive { background: ${theme === "dark" ? "#4c0519" : "#fff1f2"}; color: ${theme === "dark" ? "#fda4af" : "#be123c"}; }
   .tiptap { min-height: 100%; outline: none; }
   .edgeever-editor-shell > div:last-child { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   .edgeever-editor-content { min-height: 100%; padding: 18px 12px 32px; font-size: 17px; line-height: 1.7; word-break: break-word; caret-color: #0f766e; }
@@ -842,7 +1307,28 @@ const getEditorStyles = (theme: "light" | "dark") => `
   .edgeever-editor-content pre { overflow-x: auto; border-radius: 10px; padding: 14px; background: #0f172a; color: #e2e8f0; }
   .edgeever-editor-content code { border-radius: 4px; padding: 2px 4px; background: ${theme === "dark" ? "#1e293b" : "#f1f5f9"}; }
   .edgeever-editor-content pre code { padding: 0; background: transparent; }
+  .edgeever-mermaid-code-block { margin: 18px 0; overflow: visible; background: transparent; }
+  .edgeever-mermaid-code-block > pre { display: none; margin: 8px 0 0; }
+  .edgeever-mermaid-code-block.is-source-visible > pre { display: block; }
+  .edgeever-mermaid-preview { display: flex; min-height: 104px; align-items: center; justify-content: center; overflow-x: auto; padding: 16px 4px; background: transparent; }
+  .edgeever-mermaid-preview[hidden] { display: none; }
+  .edgeever-mermaid-svg { width: 100%; text-align: center; }
+  .edgeever-mermaid-svg svg { display: block; width: auto; max-width: 100%; height: auto; max-height: 440px; margin: auto; }
+  .edgeever-mermaid-message, .edgeever-mermaid-error { margin: 0; font-size: 14px; line-height: 1.5; text-align: center; }
+  .edgeever-mermaid-message { color: ${theme === "dark" ? "#94a3b8" : "#64748b"}; }
+  .edgeever-mermaid-error { color: ${theme === "dark" ? "#fda4af" : "#be123c"}; }
   .edgeever-editor-content img { display: block; max-width: 100%; height: auto; margin: 14px auto; border-radius: 10px; }
+  .edgeever-editor-content .tableWrapper { --mobile-table-column-width: clamp(5.5rem, calc((100vw - 3rem) / 3), 14rem); width: 100%; max-width: 100%; overflow-x: auto; margin-top: 20px; margin-right: auto; margin-bottom: 20px; margin-left: 0; border: 1px solid ${theme === "dark" ? "#334155" : "#d8d8d8"}; border-radius: 2px; background: ${theme === "dark" ? "#0f172a" : "#fff"}; overscroll-behavior-inline: contain; scrollbar-color: rgba(100, 116, 139, 0.28) transparent; }
+  .edgeever-editor-content table { width: max-content; min-width: 100% !important; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+  .edgeever-editor-content table col { width: var(--mobile-table-column-width) !important; }
+  .edgeever-editor-content th, .edgeever-editor-content td { position: relative; width: var(--mobile-table-column-width); min-width: var(--mobile-table-column-width); border: 0; border-right: 1px solid ${theme === "dark" ? "#334155" : "#dedede"}; border-bottom: 1px solid ${theme === "dark" ? "#334155" : "#dedede"}; padding: 7px 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; line-height: 1.4; transition: background-color 120ms ease; }
+  .edgeever-editor-content th { background: ${theme === "dark" ? "#27303f" : "#f0f0f0"}; color: ${theme === "dark" ? "#f8fafc" : "#111827"}; font-size: 14px; font-weight: 700; }
+  .edgeever-editor-content th:last-child, .edgeever-editor-content td:last-child { border-right: 0; }
+  .edgeever-editor-content tr:last-child td { border-bottom: 0; }
+  .edgeever-editor-content tbody tr:nth-child(even) td { background: ${theme === "dark" ? "#182235" : "#f8f8f8"}; }
+  .edgeever-editor-content tbody tr:hover td { background: ${theme === "dark" ? "#202b3d" : "#f3f4f6"}; }
+  .edgeever-editor-content th p, .edgeever-editor-content td p { margin: 0; }
+  .edgeever-editor-content .selectedCell::after { position: absolute; inset: 0; content: ""; pointer-events: none; background: rgba(16, 185, 129, 0.14); }
   .edgeever-image-upload-placeholder { position: relative; max-width: 100%; min-height: 112px; margin: 14px auto; overflow: hidden; border-radius: 10px; background: ${theme === "dark" ? "#1e293b" : "#f1f5f9"}; }
   .edgeever-image-upload-preview { display: block; width: 100%; max-height: 360px; margin: 0 !important; object-fit: contain; border-radius: 10px; }
   .edgeever-image-upload-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: 10px; background: rgba(15, 23, 42, 0.38); color: #fff; font-size: 14px; font-weight: 600; text-shadow: 0 1px 2px rgba(15, 23, 42, 0.45); }

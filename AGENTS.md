@@ -18,7 +18,7 @@
 
 正式版本遵循 Semantic Versioning，标签与 Release 标题统一使用 `vX.Y.Z`。发布前检查远端标签与实际 GitHub Release；孤立标签不作为发布基线，每个正式标签最终都应有对应 Release。
 
-Release 以上一个实际发布的正式 Release 为基线，审计完整提交区间并面向用户汇总所有可感知变化。标签必须指向 `main` 上经过验证的提交，默认发布为非 Draft、非 Prerelease。功能或修复 Release 须关联带对应 Label 的 Issue；发布后回链并关闭 Issue。正文结构：
+Release 以上一个实际发布的正式 Release 为基线，审计完整提交区间并面向用户汇总所有可感知变化。Release 说明必须使用英文。标签必须指向 `main` 上经过验证的提交，默认发布为非 Draft、非 Prerelease。功能或修复 Release 须关联带对应 Label 的 Issue；发布后回链并关闭 Issue。正文结构：
 
 ```md
 ## 主要更新

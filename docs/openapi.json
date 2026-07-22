@@ -88,6 +88,81 @@
         }
       }
     },
+    "/api/v1/auth/sessions": {
+      "get": {
+        "summary": "List the current user's active login sessions",
+        "responses": {
+          "200": {
+            "description": "Active login sessions ordered by latest activity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessions": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/LoginDeviceSession" }
+                    }
+                  },
+                  "required": ["sessions"]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke all login sessions except the current session",
+        "responses": {
+          "200": {
+            "description": "Other sessions revoked",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Ok" }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/sessions/{sessionId}": {
+      "delete": {
+        "summary": "Revoke one of the current user's other login sessions",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session revoked",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Ok" }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "summary": "Create interactive session",
@@ -1316,6 +1391,18 @@
         },
         "required": ["authRequired", "authenticated", "demoMode", "user"]
       },
+      "LoginDeviceSession": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "userAgent": { "type": ["string", "null"] },
+          "isCurrent": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "lastSeenAt": { "type": "string", "format": "date-time" },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "userAgent", "isCurrent", "createdAt", "lastSeenAt", "expiresAt"]
+      },
       "AuthUser": {
         "type": "object",
         "properties": {
@@ -1375,6 +1462,12 @@
           },
           "password": {
             "type": "string"
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 160,
+            "description": "Stable client installation identifier used to replace older sessions from the same device"
           }
         },
         "required": ["username", "password"]

@@ -12,6 +12,7 @@ import {
   ListOrdered,
   Quote,
   SquareCode,
+  Workflow,
   Minus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getActiveBlockValue } from "@/lib/app-helpers";
 import { CODE_BLOCK_LANGUAGES, getCodeBlockLanguageValue } from "@/lib/code-block";
+import { EditorTableMenu } from "@/components/EditorTableMenu";
 
 const EditorToolbarButton = ({
   active = false,
@@ -93,6 +95,30 @@ const toggleCodeBlock = (editor: Editor) => {
       {
         type: "codeBlock",
         content: selectedText ? [{ type: "text", text: selectedText }] : undefined,
+      }
+    )
+    .run();
+};
+
+const insertMermaidDiagram = (editor: Editor) => {
+  if (editor.isActive("codeBlock")) {
+    editor.chain().focus().updateAttributes("codeBlock", { language: "mermaid" }).run();
+    return;
+  }
+
+  const { from, to } = editor.state.selection;
+  const selectedText = editor.state.doc.textBetween(from, to, "\n", "\n").trim();
+  const source = selectedText || "flowchart LR\n  A[Start] --> B[End]";
+
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(
+      { from, to },
+      {
+        type: "codeBlock",
+        attrs: { language: "mermaid" },
+        content: [{ type: "text", text: source }],
       }
     )
     .run();
@@ -314,6 +340,14 @@ export const EditorToolbar = ({
           >
             <SquareCode className="h-4 w-4" />
           </EditorToolbarButton>
+          <EditorToolbarButton
+            title={t("editorToolbar.mermaidDiagram")}
+            active={codeBlockActive && codeBlockLanguage === "mermaid"}
+            disabled={disabled}
+            onClick={() => run(insertMermaidDiagram)}
+          >
+            <Workflow className="h-4 w-4" />
+          </EditorToolbarButton>
           {showCodeLanguageSelector && (
             <Select
               value={codeBlockLanguage}
@@ -344,6 +378,7 @@ export const EditorToolbar = ({
           >
             <Minus className="h-4 w-4" />
           </EditorToolbarButton>
+          <EditorTableMenu editor={editor} readOnly={readOnly} />
             </>
           )}
         </div>

@@ -63,6 +63,11 @@ import {
   resolveDemoPasswordHash,
   shouldUpsertDemoSeedRecord,
 } from "./demo-mode";
+import {
+  groupLoginDeviceSessions,
+  resolveSessionDeviceId,
+  type LoginDeviceSessionRow,
+} from "./auth-session-devices";
 
 type Bindings = {
   DB: D1Database;
@@ -280,8 +285,9 @@ const DEMO_SEED_NOTEBOOKS = [
   { id: "nb_creative", parentId: null, name: "灵感创作", slug: "creative-ideas", icon: "notebook", color: "#db2777", sortOrder: 40 },
   { id: "nb_personal", parentId: null, name: "生活个人", slug: "personal-life", icon: "notebook", color: "#ea580c", sortOrder: 50 },
   { id: "nb_demo_features", parentId: "nb_projects", name: "功能演示", slug: "demo-features", icon: "notebook", color: "#0891b2", sortOrder: 21 },
+  { id: "nb_demo_features_en", parentId: "nb_projects", name: "Feature Demos", slug: "feature-demos", icon: "notebook", color: "#0e7490", sortOrder: 22 },
 ];
-const DEMO_SEED_MEMOS = [
+const DEMO_SEED_MEMOS_ZH = [
   {
     id: "memo_welcome",
     notebookId: "nb_inbox",
@@ -346,6 +352,42 @@ const DEMO_SEED_MEMOS = [
       "## Agent-ready：REST API 与 MCP\n\nEdgeEver 提供 REST API、OpenAPI schema 和 MCP endpoint。AI Agent 可以读取笔记本、创建笔记、整理标签，并把导入资料迁移到你的自托管实例。\n\n### 从这里开始\n\n- OpenAPI schema：`/api/openapi.json`\n- MCP endpoint：`/mcp`\n\n一个很小的 Agent 工作流是：先读取「功能演示」笔记本，再把这两条合并素材整理成一条带结论的长期笔记。",
   },
   {
+    id: "memo_demo_mermaid_flowchart",
+    notebookId: "nb_demo_features",
+    title: "Mermaid 示例：笔记整理流程",
+    tags: ["mermaid", "flowchart", "demo"],
+    isPinned: true,
+    markdown:
+      "## 笔记整理流程\n\n流程图适合表达判断、分支和处理步骤。进入编辑模式后，可以直接修改下方 Mermaid 源码并查看预览。\n\n```mermaid\nflowchart TD\n  A[\"记录灵感\"] --> B{\"需要立即处理？\"}\n  B -- \"是\" --> C[\"加入今日行动\"]\n  B -- \"否\" --> D[\"放入等待分类\"]\n  D --> E{\"是否属于长期主题？\"}\n  E -- \"是\" --> F[\"移动到主题笔记本\"]\n  E -- \"否\" --> G[\"添加标签并归档\"]\n  C --> H[\"完成后沉淀结论\"]\n  F --> H\n```\n\n修改节点文字或连线后，图表会自动重新渲染；Markdown 中仍保存标准的 `mermaid` 围栏代码块。",
+  },
+  {
+    id: "memo_demo_mermaid_sequence",
+    notebookId: "nb_demo_features",
+    title: "Mermaid 示例：离线同步时序",
+    tags: ["mermaid", "sequence", "sync"],
+    isPinned: false,
+    markdown:
+      "## 离线同步时序\n\n时序图适合说明多个角色或系统之间按时间发生的交互。\n\n```mermaid\nsequenceDiagram\n  actor U as 用户\n  participant A as EdgeEver App\n  participant Q as 本地同步队列\n  participant API as EdgeEver API\n  participant DB as D1\n\n  U->>A: 编辑并保存笔记\n  A->>Q: 写入本地草稿与待同步记录\n  A-->>U: 立即显示“已保存到本地”\n  Q->>API: 网络恢复后提交更新\n  API->>DB: 校验版本并持久化\n  DB-->>API: 返回新版本\n  API-->>Q: 同步成功\n  Q-->>A: 清除待同步记录\n```\n\n这种图很适合记录 API 调用、登录流程、消息队列和跨服务协作。",
+  },
+  {
+    id: "memo_demo_mermaid_state",
+    notebookId: "nb_demo_features",
+    title: "Mermaid 示例：笔记生命周期",
+    tags: ["mermaid", "state-diagram", "workflow"],
+    isPinned: false,
+    markdown:
+      "## 笔记生命周期\n\n状态图强调一个对象会处于哪些状态，以及什么事件会触发状态变化。\n\n```mermaid\nstateDiagram-v2\n  [*] --> 草稿\n  草稿 --> 待同步: 离线保存\n  草稿 --> 已保存: 在线保存\n  待同步 --> 已保存: 同步成功\n  待同步 --> 冲突: 服务端版本已变化\n  冲突 --> 草稿: 选择本地版本继续编辑\n  冲突 --> 已保存: 接受服务端版本\n  已保存 --> 已归档: 归档\n  已归档 --> 已保存: 恢复\n  已保存 --> 回收站: 删除\n  回收站 --> 已保存: 恢复\n  回收站 --> [*]: 永久删除\n```\n\n它也适合描述订单、审批单、任务或发布流程。",
+  },
+  {
+    id: "memo_demo_mermaid_gantt",
+    notebookId: "nb_demo_features",
+    title: "Mermaid 示例：一周发布计划",
+    tags: ["mermaid", "gantt", "planning"],
+    isPinned: false,
+    markdown:
+      "## 一周发布计划\n\n甘特图可以把任务、依赖关系和时间安排放在一张图里。\n\n```mermaid\ngantt\n  title EdgeEver 功能发布计划\n  dateFormat YYYY-MM-DD\n  axisFormat %m-%d\n\n  section 开发\n  完成 Mermaid 渲染 :done, dev1, 2026-07-20, 2d\n  补齐 App 编辑能力 :done, dev2, after dev1, 1d\n\n  section 验证\n  自动化测试 :active, qa1, after dev2, 1d\n  Android 与 Web 验收 :qa2, after qa1, 1d\n\n  section 发布\n  整理说明与发布 :milestone, release, after qa2, 0d\n```\n\n日期和持续时间都是普通文本，因此可以直接在笔记里维护轻量项目计划。",
+  },
+  {
     id: "memo_demo_mobile",
     notebookId: "nb_personal",
     title: "移动端与 PWA",
@@ -363,7 +405,164 @@ const DEMO_SEED_MEMOS = [
     markdown:
       "## 图片笔记示例\n\n笔记正文可以直接插入图片。上传后的图片会进入 R2，正文里保存的是资源 URL，API、MCP 和前端编辑器都能读取。\n\n![EdgeEver 图片资源示例](/api/v1/resources/res_demo_gallery_image/blob)\n\n**图注：** 一张图片和它的说明、结论放在同一条笔记里，回看时就不必猜测截图来自哪里。\n\n这类笔记适合保存截图、设计稿、读书摘图和临时资料。",
   },
+  {
+    id: "memo_demo_table",
+    notebookId: "nb_demo_features",
+    title: "表格编辑：功能对比",
+    tags: ["table", "editor", "demo"],
+    isPinned: true,
+    markdown:
+      "## 表格编辑：功能对比\n\n这张表适合在 Web 或移动端直接编辑。可以点击单元格修改内容，也可以继续添加行列。\n\n| 能力 | Web | 移动端 | 适合场景 |\n| --- | --- | --- | --- |\n| 创建表格 | 支持 | 支持 | 会议记录 |\n| 编辑单元格 | 支持 | 支持 | 计划跟踪 |\n| 横向滚动 | 支持 | 支持 | 对比资料 |\n\n试着把「会议记录」改成一个真实项目，体验表格在桌面和手机上的一致性。",
+  },
+  {
+    id: "memo_demo_character_count",
+    notebookId: "nb_demo_features",
+    title: "字符数统计：一段产品摘要",
+    tags: ["editor", "character-count", "demo"],
+    isPinned: false,
+    markdown:
+      "## 字符数统计：一段产品摘要\n\nEdgeEver 是一个开放、轻量、支持 AI Agent 的个人知识库。它用三栏工作流承载快速记录、集中整理和长期沉淀，让笔记既适合日常捕捉，也方便通过 API 和 MCP 继续加工。\n\n这条笔记故意保留一段完整文字。打开编辑器后，观察底部字符数随着输入、删除和粘贴实时变化。",
+  },
+  {
+    id: "memo_demo_focus_mode",
+    notebookId: "nb_demo_features",
+    title: "桌面专注模式：产品发布提纲",
+    tags: ["focus-mode", "desktop", "demo"],
+    isPinned: false,
+    markdown:
+      "## 桌面专注模式：产品发布提纲\n\n这是一条适合长文编辑的示例。桌面端点击编辑器右上角的专注模式后，笔记会展开到更宽的工作区，减少笔记本树和列表的干扰。\n\n### 发布信息\n\n- 一句话定位：把零散材料变成可持续维护的知识库\n- 核心演示：快速记录、表格整理、Mermaid 流程和版本恢复\n- 现场操作：进入专注模式，补充一段发布说明，再退出回到三栏布局\n\n专注模式适合写方案、会议纪要、读书笔记和较长的项目总结。",
+  },
+  {
+    id: "memo_demo_revision",
+    notebookId: "nb_demo_features",
+    title: "版本历史：会议决策记录",
+    tags: ["revision", "history", "demo"],
+    isPinned: true,
+    revision: 2,
+    markdown:
+      "## 版本历史：会议决策记录\n\n这条笔记预置了历史版本。打开「版本历史」后，可以查看旧版本、对比差异，并恢复选中的版本；恢复操作还会生成新的版本记录。\n\n### 当前结论\n\n- 首版先支持 Web 和移动端的表格编辑\n- Mermaid 示例覆盖流程、时序、状态和甘特图\n- 发布前用专注模式完成长文校对\n\n请先查看版本 1 的草稿，再回到当前版本，体验历史内容与最新结论之间的差异。",
+  },
 ];
+const DEMO_SEED_REVISIONS = [
+  {
+    id: "rev_demo_revision_1",
+    memoId: "memo_demo_revision",
+    revision: 1,
+    title: "版本历史：会议决策记录",
+    markdown:
+      "## 会议决策记录\n\n- 先完成编辑器和表格能力\n- 再补充 Mermaid 图表\n- 最后统一整理发布说明\n\n这是会议初稿，后续版本补充了验证结果。",
+  },
+  {
+    id: "rev_demo_revision_1_en",
+    memoId: "memo_demo_revision_en",
+    revision: 1,
+    title: "Version History: Meeting Decision Log",
+    markdown:
+      "## Meeting Decision Log\n\n- Finish editor and table support first\n- Add Mermaid diagrams next\n- Polish the release outline last\n\nThis is the original draft; later revisions added the verification results.",
+  },
+];
+const DEMO_MEMO_ENGLISH = {
+  memo_welcome: {
+    title: "Welcome to EdgeEver",
+    markdown:
+      "## Welcome to EdgeEver\n\nThis public demo is safe for exploring, editing, searching, and merging notes. Demo data resets every Monday at 1:00 AM China Standard Time.\n\n### Three-minute tour\n\n1. Create a temporary note and add a tag.\n2. Search for `workflow`, `full-text search`, or `inbox`.\n3. Open the rich-text and Markdown editor sample.\n4. Select the two merge samples and merge them into a long-term note.\n5. Try the table, Mermaid, focus mode, character count, and version history samples.",
+  },
+  memo_demo_editor: {
+    title: "Rich Text and Markdown Editor",
+    markdown:
+      "## Rich Text and Markdown Editor\n\nEdit the headings, list, quote, and code block, then switch to Markdown mode to compare the source. EdgeEver stores structured editor content while keeping Markdown available for APIs and AI Agents.",
+  },
+  memo_demo_search_tags: {
+    title: "Tags, Search, and Archive",
+    markdown:
+      "## Tags, Search, and Archive\n\nTry searching for `workflow`, `full-text search`, or `inbox`. Use notebooks for long-term structure and tags for cross-cutting connections, so quick captures do not get lost.",
+  },
+  memo_demo_merge: {
+    title: "Multi-select Note Merge",
+    markdown:
+      "## Multi-select Note Merge\n\nSelect the interview excerpt and competitor observation samples, then merge them into one long-term note. The source notes move to Trash and their resource links follow the merged result.",
+  },
+  memo_demo_merge_interview: {
+    title: "Merge Source: Interview Excerpt",
+    markdown:
+      "## User Interview Excerpt\n\n- People want to capture quickly and organize later.\n- Search is often better than deep folder nesting for finding scattered ideas.\n- Important material should become a maintainable long-term note.",
+  },
+  memo_demo_merge_competitor: {
+    title: "Merge Source: Competitor Observation",
+    markdown:
+      "## Competitor Observation\n\n- A lightweight capture path creates a healthier inbox.\n- Tags connect themes without forcing duplicate filing.\n- Periodically merging fragments into conclusions reduces maintenance cost.",
+  },
+  memo_demo_agent: {
+    title: "Agent-ready: REST API and MCP",
+    markdown:
+      "## Agent-ready: REST API and MCP\n\nEdgeEver exposes REST, OpenAPI, and MCP endpoints. An AI Agent can read notebooks, create notes, organize tags, and migrate material into a self-hosted instance.\n\n- OpenAPI: `/api/openapi.json`\n- MCP: `/mcp`",
+  },
+  memo_demo_mermaid_flowchart: {
+    title: "Mermaid: Note Triage Flowchart",
+    markdown:
+      "## Note Triage Flowchart\n\nEdit the standard `mermaid` fenced block below and watch the preview update. Flowcharts are useful for decisions, branches, and repeatable workflows.\n\n```mermaid\nflowchart TD\n  A[\"Capture an idea\"] --> B{\"Needs action now?\"}\n  B -- \"Yes\" --> C[\"Add to today's actions\"]\n  B -- \"No\" --> D[\"Put in Inbox\"]\n  D --> E{\"Long-term topic?\"}\n  E -- \"Yes\" --> F[\"Move to topic notebook\"]\n  E -- \"No\" --> G[\"Tag and archive\"]\n```",
+  },
+  memo_demo_mermaid_sequence: {
+    title: "Mermaid: Offline Sync Sequence",
+    markdown:
+      "## Offline Sync Sequence\n\nSequence diagrams explain interactions between users, apps, queues, APIs, and databases over time. The source remains editable Markdown.\n\n```mermaid\nsequenceDiagram\n  actor U as User\n  participant A as EdgeEver App\n  participant Q as Sync Queue\n  participant API as EdgeEver API\n  participant DB as D1\n  U->>A: Edit and save\n  A->>Q: Write local draft\n  Q->>API: Submit when online\n  API->>DB: Validate revision\n  DB-->>API: Return new revision\n  API-->>Q: Sync succeeded\n```",
+  },
+  memo_demo_mermaid_state: {
+    title: "Mermaid: Note Lifecycle State Diagram",
+    markdown:
+      "## Note Lifecycle\n\nState diagrams show the states of an object and the events that move it between states.\n\n```mermaid\nstateDiagram-v2\n  [*] --> Draft\n  Draft --> PendingSync: Save offline\n  Draft --> Saved: Save online\n  PendingSync --> Saved: Sync succeeds\n  PendingSync --> Conflict: Server version changed\n  Conflict --> Draft: Keep local version\n  Conflict --> Saved: Accept server version\n  Saved --> Archived: Archive\n  Saved --> Trash: Delete\n  Trash --> Saved: Restore\n```",
+  },
+  memo_demo_mermaid_gantt: {
+    title: "Mermaid: One-week Release Plan",
+    markdown:
+      "## One-week Release Plan\n\nGantt charts place tasks, dependencies, and dates on one timeline.\n\n```mermaid\ngantt\n  title EdgeEver Feature Release\n  dateFormat YYYY-MM-DD\n  section Build\n  Mermaid rendering :done, dev1, 2026-07-20, 2d\n  Mobile editor polish :done, dev2, after dev1, 1d\n  section Verify\n  Automated tests :active, qa1, after dev2, 1d\n  Web and Android review :qa2, after qa1, 1d\n```",
+  },
+  memo_demo_mobile: {
+    title: "Mobile and PWA",
+    markdown:
+      "## Mobile and PWA\n\nUse the desktop three-pane workspace for organization and the PWA or native app for quick capture. Create an Inbox note on your phone, then finish organizing it on desktop.",
+  },
+  memo_demo_images: {
+    title: "Image Note Sample",
+    markdown:
+      "## Image Note Sample\n\nImages are stored as resources and rendered inside the note. Keeping the image, caption, and conclusion together makes screenshots, design references, and reading clippings easier to revisit.",
+  },
+  memo_demo_table: {
+    title: "Table Editing: Feature Comparison",
+    markdown:
+      "## Table Editing: Feature Comparison\n\nEdit this table on Web or mobile. Click a cell to change its value, or add rows and columns to turn it into a real project tracker.\n\n| Capability | Web | Mobile | Use case |\n| --- | --- | --- | --- |\n| Create tables | Supported | Supported | Meeting notes |\n| Edit cells | Supported | Supported | Planning |\n| Horizontal scroll | Supported | Supported | Comparisons |",
+  },
+  memo_demo_character_count: {
+    title: "Character Count: Product Summary",
+    markdown:
+      "## Character Count: Product Summary\n\nEdgeEver is an open, lightweight, AI-Agent-friendly knowledge base. Its three-pane workflow supports quick capture, focused editing, and long-term organization while APIs and MCP keep the data portable.\n\nEdit, delete, or paste text and watch the character count update in real time.",
+  },
+  memo_demo_focus_mode: {
+    title: "Desktop Focus Mode: Release Outline",
+    markdown:
+      "## Desktop Focus Mode: Release Outline\n\nOpen this long-form note and click the focus-mode control in the editor header. The editor expands across the workspace so the notebook tree and note list do not compete for attention.\n\n- Positioning: turn scattered material into maintainable knowledge\n- Demo path: capture, table editing, Mermaid, and version restore\n- Exercise: add a release paragraph, then return to the three-pane layout",
+  },
+  memo_demo_revision: {
+    title: "Version History: Meeting Decision Log",
+    markdown:
+      "## Version History: Meeting Decision Log\n\nThis note includes a historical snapshot. Open Version history to compare the draft with the current conclusion, then restore a version to create a new revision.\n\n- Start with Web and mobile table editing\n- Cover flowchart, sequence, state, and Gantt Mermaid diagrams\n- Use focus mode for the final long-form review",
+  },
+} as const;
+const DEMO_SEED_MEMOS_EN = DEMO_SEED_MEMOS_ZH.map((memo) => {
+  const english = DEMO_MEMO_ENGLISH[memo.id as keyof typeof DEMO_MEMO_ENGLISH];
+  if (!english) {
+    return null;
+  }
+
+  return {
+    ...memo,
+    id: `${memo.id}_en`,
+    notebookId: "nb_demo_features_en",
+    title: english.title,
+    markdown: english.markdown,
+  };
+}).filter((memo): memo is NonNullable<typeof memo> => memo !== null);
+const DEMO_SEED_MEMOS = [...DEMO_SEED_MEMOS_ZH, ...DEMO_SEED_MEMOS_EN];
 const DEMO_SEED_RESOURCES = [
   {
     id: "res_demo_editor_image",
@@ -490,6 +689,96 @@ app.get("/api/v1/auth/session", async (c) => {
   });
 });
 
+app.get("/api/v1/auth/sessions", async (c) => {
+  const auth = await authenticateRequest(c, true);
+
+  if (!auth || auth.kind !== "user" || !auth.actorId || !auth.sessionId) {
+    return unauthorized(c, "An interactive user session is required.");
+  }
+
+  const now = isoNow();
+  const rows = await c.env.DB.prepare(
+    `SELECT id, device_id, user_agent, expires_at, created_at, last_seen_at
+     FROM sessions
+     WHERE user_id = ?
+       AND revoked_at IS NULL
+       AND expires_at > ?
+     ORDER BY COALESCE(last_seen_at, created_at) DESC
+     LIMIT 200`
+  )
+    .bind(auth.actorId, now)
+    .all<LoginDeviceSessionRow>();
+
+  return c.json({
+    sessions: groupLoginDeviceSessions(rows.results, auth.sessionId).slice(0, 50),
+  });
+});
+
+app.delete("/api/v1/auth/sessions", async (c) => {
+  const auth = await authenticateRequest(c, true);
+
+  if (!auth || auth.kind !== "user" || !auth.actorId || !auth.sessionId) {
+    return unauthorized(c, "An interactive user session is required.");
+  }
+
+  const now = isoNow();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE sessions
+       SET revoked_at = ?
+       WHERE user_id = ? AND id != ? AND revoked_at IS NULL AND expires_at > ?`
+    ).bind(now, auth.actorId, auth.sessionId, now),
+    auditStatement(c.env.DB, "user", auth.actorId, "auth.sessions_revoke_others", "session", auth.sessionId, {}),
+  ]);
+
+  return c.json({ ok: true });
+});
+
+app.delete("/api/v1/auth/sessions/:sessionId", async (c) => {
+  const auth = await authenticateRequest(c, true);
+
+  if (!auth || auth.kind !== "user" || !auth.actorId || !auth.sessionId) {
+    return unauthorized(c, "An interactive user session is required.");
+  }
+
+  const sessionId = c.req.param("sessionId");
+  if (sessionId === auth.sessionId) {
+    return apiError(c, "current_session_cannot_be_revoked", "The current session cannot be revoked here.", 400);
+  }
+
+  const now = isoNow();
+  const session = await c.env.DB.prepare(
+    `SELECT id, device_id FROM sessions
+     WHERE id = ? AND user_id = ? AND revoked_at IS NULL AND expires_at > ?`
+  )
+    .bind(sessionId, auth.actorId, now)
+    .first<{ id: string; device_id: string | null }>();
+
+  if (!session) {
+    return notFound(c, "Login session not found.");
+  }
+
+  const currentSession = await c.env.DB.prepare(`SELECT device_id FROM sessions WHERE id = ? AND user_id = ?`)
+    .bind(auth.sessionId, auth.actorId)
+    .first<{ device_id: string | null }>();
+
+  if (session.device_id && currentSession?.device_id === session.device_id) {
+    return apiError(c, "current_session_cannot_be_revoked", "The current device cannot be revoked here.", 400);
+  }
+
+  await c.env.DB.batch([
+    session.device_id
+      ? c.env.DB.prepare(
+          `UPDATE sessions SET revoked_at = ?
+           WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL`
+        ).bind(now, auth.actorId, session.device_id)
+      : c.env.DB.prepare(`UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`).bind(now, session.id),
+    auditStatement(c.env.DB, "user", auth.actorId, "auth.session_revoke", "session", session.id, {}),
+  ]);
+
+  return c.json({ ok: true });
+});
+
 app.post("/api/v1/auth/login", zValidator("json", LoginSchema), async (c) => {
   const authMode = await getInstanceAuthMode(c.env);
   if (authMode === "unconfigured") {
@@ -504,7 +793,7 @@ app.post("/api/v1/auth/login", zValidator("json", LoginSchema), async (c) => {
   }
 
   const workspace = await ensureUserWorkspace(c.env.DB, user.id, user.username);
-  const session = await createSession(c, user);
+  const session = await createSession(c, user, input.deviceId);
   setSessionCookie(c, session.token, session.maxAge);
 
   await c.env.DB.batch([
@@ -3666,31 +3955,28 @@ const createDefaultNotebookRows = (workspaceId: string, _now: string) => [
   { id: `${workspaceId}_personal`, name: "生活个人", slug: "personal-life", color: "#ea580c", sortOrder: 50 },
 ];
 
-const createSession = async (c: AppContext, user: UserRow) => {
+const createSession = async (c: AppContext, user: UserRow, requestedDeviceId?: string) => {
   const token = randomToken(SESSION_TOKEN_BYTES);
   const id = createId("sess");
   const now = isoNow();
   const maxAge = getSessionMaxAge(c.env);
   const expiresAt = new Date(Date.now() + maxAge * 1000).toISOString();
+  const userAgent = c.req.header("User-Agent") ?? null;
+  const deviceId = resolveSessionDeviceId(requestedDeviceId, userAgent, id);
   const ip = c.req.header("CF-Connecting-IP");
   const ipHash = ip ? await sha256(ip) : null;
 
-  await c.env.DB.prepare(
-    `INSERT INTO sessions (
-      id, user_id, token_hash, user_agent, ip_hash, expires_at, created_at, last_seen_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      id,
-      user.id,
-      await sha256(token),
-      c.req.header("User-Agent") ?? null,
-      ipHash,
-      expiresAt,
-      now,
-      now
-    )
-    .run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE sessions SET revoked_at = ?
+       WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL`
+    ).bind(now, user.id, deviceId),
+    c.env.DB.prepare(
+      `INSERT INTO sessions (
+        id, user_id, token_hash, device_id, user_agent, ip_hash, expires_at, created_at, last_seen_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, user.id, await sha256(token), deviceId, userAgent, ipHash, expiresAt, now, now),
+  ]);
 
   return { id, token, maxAge };
 };
@@ -5317,16 +5603,25 @@ const ensureDemoSeed = async (
         .prepare(
           `INSERT INTO memo_contents (
             memo_id, content_json, content_markdown, content_text, content_hash, revision, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(memo_id) DO UPDATE SET
             content_json = excluded.content_json,
             content_markdown = excluded.content_markdown,
             content_text = excluded.content_text,
             content_hash = excluded.content_hash,
-            revision = 0,
+            revision = excluded.revision,
             updated_at = excluded.updated_at`
         )
-        .bind(memo.id, JSON.stringify(contentJson), memo.markdown, contentText, contentHash, now, now),
+        .bind(
+          memo.id,
+          JSON.stringify(contentJson),
+          memo.markdown,
+          contentText,
+          contentHash,
+          "revision" in memo ? memo.revision : 0,
+          now,
+          now,
+        ),
       db.prepare(`DELETE FROM memos_fts WHERE memo_id = ?`).bind(memo.id),
       db
         .prepare(
@@ -5334,6 +5629,38 @@ const ensureDemoSeed = async (
            VALUES (?, ?, ?, ?)`
         )
         .bind(memo.id, memo.title, contentText, memo.tags.join(" "))
+    );
+  }
+
+  for (const revision of DEMO_SEED_REVISIONS) {
+    const contentJson = markdownToDoc(revision.markdown);
+    const contentHash = await sha256(revision.markdown + JSON.stringify(contentJson));
+
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO memo_revisions (
+            id, memo_id, revision, title, content_json, content_markdown, content_hash,
+            created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'system', ?)
+          ON CONFLICT(id) DO UPDATE SET
+            memo_id = excluded.memo_id,
+            revision = excluded.revision,
+            title = excluded.title,
+            content_json = excluded.content_json,
+            content_markdown = excluded.content_markdown,
+            content_hash = excluded.content_hash`
+        )
+        .bind(
+          revision.id,
+          revision.memoId,
+          revision.revision,
+          revision.title,
+          JSON.stringify(contentJson),
+          revision.markdown,
+          contentHash,
+          now,
+        ),
     );
   }
 

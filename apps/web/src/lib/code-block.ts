@@ -1,6 +1,15 @@
 import { common, createLowlight } from "lowlight";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { ReactNodeViewRenderer } from "@tiptap/react";
+import { MermaidCodeBlock } from "@/components/MermaidCodeBlock";
 
 export const codeBlockLowlight = createLowlight(common);
+
+export const EdgeEverCodeBlock = CodeBlockLowlight.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(MermaidCodeBlock);
+  },
+});
 
 export const CODE_BLOCK_LANGUAGES = [
   { value: "plaintext", label: "Plain text" },
@@ -10,6 +19,7 @@ export const CODE_BLOCK_LANGUAGES = [
   { value: "javascript", label: "JavaScript" },
   { value: "json", label: "JSON" },
   { value: "markdown", label: "Markdown" },
+  { value: "mermaid", label: "Mermaid" },
   { value: "python", label: "Python" },
   { value: "sql", label: "SQL" },
   { value: "typescript", label: "TypeScript" },

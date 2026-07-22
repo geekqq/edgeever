@@ -81,6 +81,7 @@
     "@tanstack/react-query": "latest",
     "@tiptap/extension-image": "^3.27.1",
     "@tiptap/extension-placeholder": "latest",
+    "@tiptap/extension-table": "3.27.1",
     "@tiptap/react": "latest",
     "@tiptap/starter-kit": "latest",
     "class-variance-authority": "latest",
@@ -124,5 +125,8 @@
     "vite": "latest",
     "vite-plugin-pwa": "^1.3.0",
     "wrangler": "^4.112.0"
+  },
+  "patchedDependencies": {
+    "mermaid@11.16.0": "patches/mermaid@11.16.0.patch"
   }
 }

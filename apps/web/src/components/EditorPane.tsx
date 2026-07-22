@@ -2,9 +2,9 @@ import { useRef, useState, useEffect, useCallback, useMemo, type PointerEvent as
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { NodeViewWrapper, ReactNodeViewRenderer, useEditor, EditorContent, type Editor, type NodeViewProps } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TableKit } from "@tiptap/extension-table";
 import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
@@ -59,8 +59,10 @@ import { api } from "@/lib/api";
 import { consumeStandaloneMobileEditorReturn, openStandaloneMobileEditor } from "@/lib/mobile-editor";
 import { cn, formatDateTime, parseTagsText } from "@/lib/utils";
 import {
+  countMemoCharacters,
   docToMarkdown,
   markdownToDoc,
+  resolveMemoContentDoc,
   type Notebook,
   type MemoDetail,
   type MemoEditSession,
@@ -72,7 +74,7 @@ import {
   clampImageWidth,
   parseImageWidth,
 } from "@edgeever/shared/image-display";
-import { codeBlockLowlight } from "@/lib/code-block";
+import { codeBlockLowlight, EdgeEverCodeBlock } from "@/lib/code-block";
 import { compressImageForUpload } from "@/lib/image-compression";
 import { localDb, type MemoUpdateSyncPayload } from "@/lib/local-db";
 import { getMemoUpdateQueueId, isMemoUpdateAlreadyApplied, queueMemoUpdate, shouldQueueMemoSaveError } from "@/lib/sync-queue";
@@ -743,7 +745,9 @@ const MobileNativeEditorPane = ({
       const useDraft = Boolean(draft && (queuedUpdate || draftUpdatedAt >= remoteUpdatedAt));
       const nextTitle = useDraft && draft ? draft.title : memo.title ?? "";
       const nextTagsText = useDraft && draft ? draft.tagsText : memo.tags.join(", ");
-      const nextContent = useDraft && draft ? draft.contentJson : memo.contentJson;
+      const nextContent = useDraft && draft
+        ? draft.contentJson
+        : resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown);
       editSessionRef.current = editSessionResponse?.editSession ?? null;
 
       hydratingRef.current = true;
@@ -945,7 +949,7 @@ const MobileNativeEditorPane = ({
 
         <textarea
           ref={bodyRef}
-          defaultValue={docToMarkdown(memo.contentJson)}
+          defaultValue={docToMarkdown(resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown))}
           autoCapitalize="sentences"
           autoComplete="on"
           autoCorrect="on"
@@ -1102,6 +1106,7 @@ const RichEditorPane = ({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [dirtyVersion, setDirtyVersion] = useState(0);
   const [, setEditorStateVersion] = useState(0);
+  const [editorContentVersion, setEditorContentVersion] = useState(0);
   const [imageUploadState, setImageUploadState] = useState<"idle" | "compressing" | "uploading" | "error">("idle");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [mobileNotebookSheetOpen, setMobileNotebookSheetOpen] = useState(false);
@@ -1323,16 +1328,21 @@ const RichEditorPane = ({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
-      CodeBlockLowlight.configure({ lowlight: codeBlockLowlight, defaultLanguage: "plaintext" }),
+      EdgeEverCodeBlock.configure({ lowlight: codeBlockLowlight, defaultLanguage: "plaintext" }),
       ResizableImage.configure({
         allowBase64: false,
         inline: false,
+      }),
+      TableKit.configure({
+        table: { renderWrapper: true },
       }),
       Placeholder.configure({
         placeholder: "开始记录...",
       }),
     ],
-    content: memo?.contentJson ?? { type: "doc", content: [{ type: "paragraph" }] },
+    content: memo
+      ? resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown)
+      : { type: "doc", content: [{ type: "paragraph" }] },
     editable: Boolean(memo && !effectiveReadOnly),
     editorProps: {
       attributes: {
@@ -1373,6 +1383,19 @@ const RichEditorPane = ({
       if (editorRef.current === editor) {
         editorRef.current = null;
       }
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (!isEditorReady(editor)) {
+      return;
+    }
+
+    const refreshCharacterCount = () => setEditorContentVersion((version) => version + 1);
+    editor.on("update", refreshCharacterCount);
+
+    return () => {
+      editor.off("update", refreshCharacterCount);
     };
   }, [editor]);
 
@@ -1608,6 +1631,13 @@ const RichEditorPane = ({
     return currentEditor.getJSON() as TiptapDoc;
   }, [getMobilePlainTextValue, markdownSource, useMarkdownSourceEditor, useMobilePlainTextEditor]);
 
+  const characterCount = useMemo(() => {
+    const contentJson = getCurrentContentJson()
+      ?? (memo ? resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown) : null);
+
+    return countMemoCharacters(contentJson);
+  }, [dirtyVersion, editorContentVersion, getCurrentContentJson, memo]);
+
   const currentSnapshot = useCallback(() => {
     const contentJson = getCurrentContentJson();
     if (!contentJson) {
@@ -1683,7 +1713,9 @@ const RichEditorPane = ({
       const useDraft = Boolean(draft && (queuedUpdate || draftUpdatedAt >= remoteUpdatedAt));
       const nextTitle = useDraft && draft ? draft.title : memo.title ?? "";
       const nextTagsText = useDraft && draft ? draft.tagsText : memo.tags.join(", ");
-      const nextContent = useDraft && draft ? draft.contentJson : memo.contentJson;
+      const nextContent = useDraft && draft
+        ? draft.contentJson
+        : resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown);
       const nextMarkdown = docToMarkdown(nextContent);
       const nextHasUnsavedChanges = Boolean(useDraft && !queuedUpdate);
 
@@ -1728,7 +1760,7 @@ const RichEditorPane = ({
     }
 
     if (memo) {
-      const nextMarkdown = docToMarkdown(memo.contentJson);
+      const nextMarkdown = docToMarkdown(resolveMemoContentDoc(memo.contentJson, memo.contentMarkdown));
       setMobilePlainText(nextMarkdown);
       setMobilePlainTextElementValue(mobileTextAreaRef.current, nextMarkdown);
     }
@@ -2345,6 +2377,12 @@ const RichEditorPane = ({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            <span
+              className="hidden whitespace-nowrap px-1.5 text-xs tabular-nums text-slate-400 sm:inline-flex"
+              title={t("editor.characterCount", { count: characterCount })}
+            >
+              {t("editor.characterCount", { count: characterCount })}
+            </span>
             {imageUploadState !== "idle" && (
               <span
                 className={cn(

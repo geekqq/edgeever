@@ -196,13 +196,30 @@ export default defineConfig({
               priority: 12,
             },
             {
+              name: "vendor-mermaid-d3",
+              test: /[\\/](?:d3(?:-[^\\/@]+)?|internmap|delaunator|robust-predicates)(?:@|[\\/])/,
+              priority: 11,
+            },
+            {
+              name: "vendor-mermaid-layout",
+              test: /[\\/](?:cytoscape(?:-[^\\/@]+)?|dagre-d3-es|graphlib|roughjs|khroma|@upsetjs[\\/]venn\.js)(?:@|[\\/])/,
+              priority: 11,
+            },
+            {
+              name: "vendor-mermaid-render",
+              test: /[\\/](?:@mermaid-js[\\/](?:parser|tiny)|katex|dompurify|stylis|dayjs|@iconify[\\/]utils)(?:@|[\\/])/,
+              priority: 11,
+            },
+            {
               name: "ui-primitives",
               test: /src[\\/]components[\\/]ui[\\/]/,
               priority: 10,
             },
             {
               name: "vendor",
-              test: /node_modules[\\/]/,
+              // Keep Mermaid's internally lazy-loaded diagram modules out of the
+              // catch-all vendor chunk so they remain on-demand.
+              test: /^(?!.*(?:[\\/]mermaid@|node_modules[\\/]mermaid[\\/])).*node_modules[\\/]/,
               priority: 5,
             },
           ],
