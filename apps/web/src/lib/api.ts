@@ -423,4 +423,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  resetDemo: () =>
+    request<{ success: true }>("/api/v1/demo/reset", {
+      method: "POST",
+    }),
 };

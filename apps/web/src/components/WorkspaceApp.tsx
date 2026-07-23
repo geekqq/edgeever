@@ -55,7 +55,6 @@ import type {
   MemoSortMode,
 } from "@/lib/app-helpers";
 import {
-  DEFAULT_MEMO_TITLE,
   MIN_MEMO_LIST_WIDTH_PX,
   MAX_MEMO_LIST_WIDTH_PX,
   DEFAULT_MEMO_LIST_WIDTH_PX,
@@ -662,6 +661,32 @@ export const WorkspaceApp = ({
   const [notebookNameDialog, setNotebookNameDialog] = useState<NotebookNameDialogState | null>(null);
   const [notebookDeleteConfirmation, setNotebookDeleteConfirmation] = useState<Notebook | null>(null);
   const [appNoticeDialog, setAppNoticeDialog] = useState<AppNoticeDialogState | null>(null);
+  const [demoResetConfirmationOpen, setDemoResetConfirmationOpen] = useState(false);
+
+  const resetDemoMutation = useMutation({
+    mutationFn: () => api.resetDemo(),
+    onSuccess: () => {
+      setDemoResetConfirmationOpen(false);
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["memos"] }),
+        queryClient.invalidateQueries({ queryKey: ["memo"] }),
+        queryClient.invalidateQueries({ queryKey: ["notebooks"] }),
+        queryClient.invalidateQueries({ queryKey: ["resources"] }),
+        queryClient.invalidateQueries({ queryKey: ["tags"] }),
+      ]);
+      setAppNoticeDialog({
+        title: t("demo.resetSuccess"),
+        description: t("demo.resetSuccess"),
+      });
+    },
+    onError: () => {
+      setDemoResetConfirmationOpen(false);
+      setAppNoticeDialog({
+        title: t("demo.resetFailed"),
+        description: t("demo.resetFailed"),
+      });
+    },
+  });
   const [multiSelectKeyDown, setMultiSelectKeyDown] = useState(false);
   const [imageCompressionEnabled, setImageCompressionEnabled] = useState(readImageCompressionPreference);
   const [desktopFocusMode, setDesktopFocusMode] = useState(readDesktopFocusModePreference);
@@ -795,7 +820,6 @@ export const WorkspaceApp = ({
   useEffect(() => {
     const english = i18n.resolvedLanguage === "en-US";
     const preferredNotebookId = english ? "nb_demo_features_en" : "nb_demo_features";
-    const alternateNotebookId = english ? "nb_demo_features" : "nb_demo_features_en";
 
     if (!notebooks.some((notebook) => notebook.id === preferredNotebookId)) {
       return;
@@ -803,11 +827,6 @@ export const WorkspaceApp = ({
 
     if (!autoSelectedDemoNotebookRef.current && selectedNotebookId === null) {
       autoSelectedDemoNotebookRef.current = true;
-      setSelectedNotebookId(preferredNotebookId);
-      return;
-    }
-
-    if (selectedNotebookId === alternateNotebookId) {
       setSelectedNotebookId(preferredNotebookId);
     }
   }, [i18n.resolvedLanguage, notebooks, selectedNotebookId]);
@@ -1647,7 +1666,7 @@ export const WorkspaceApp = ({
     setMobileBottomNavActive("home");
     createMemoMutation.mutate({
       notebookId: defaultMemoNotebookId,
-      title: template?.title ?? DEFAULT_MEMO_TITLE,
+      title: template?.title ?? "",
       contentMarkdown: template?.contentMarkdown ?? "",
       tags: template?.tags ?? [],
     });
@@ -2430,6 +2449,9 @@ export const WorkspaceApp = ({
                     setActivePane("memos");
                   }}
                   onEmptyTrash={handleEmptyTrash}
+                  demoMode={demoMode}
+                  onResetDemo={() => setDemoResetConfirmationOpen(true)}
+                  isResettingDemo={resetDemoMutation.isPending}
                 />
               </Suspense>
             )}
@@ -2591,6 +2613,7 @@ export const WorkspaceApp = ({
                     isTrashView={memoView === "trash"}
                     notebooks={notebooks}
                     isLoading={memoQuery.isLoading}
+                    contentSearchQuery={search}
                     searchFocusToken={noteSearchFocusToken}
                     replaceFocusToken={noteReplaceFocusToken}
                     imageCompressionEnabled={imageCompressionEnabled}
@@ -2723,6 +2746,18 @@ export const WorkspaceApp = ({
           tone="neutral"
           onCancel={() => setAppNoticeDialog(null)}
           onConfirm={() => setAppNoticeDialog(null)}
+        />
+      )}
+      {demoResetConfirmationOpen && (
+        <AppConfirmDialog
+          title={t("demo.resetTitle")}
+          description={t("demo.resetDescription")}
+          confirmLabel={t("demo.resetConfirm")}
+          cancelLabel={t("common.cancel")}
+          isWorking={resetDemoMutation.isPending}
+          tone="primary"
+          onCancel={() => setDemoResetConfirmationOpen(false)}
+          onConfirm={() => resetDemoMutation.mutate()}
         />
       )}
       {visibleActivePane !== "editor" && !memoSelectionModeActive && (

@@ -1,3 +1,5 @@
+@import "highlight.js/styles/github.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -178,6 +180,17 @@ textarea {
   padding: 24px 28px 56px;
 }
 
+.ProseMirror .edgeever-search-match {
+  border-radius: 0.2rem;
+  background-color: rgb(254 240 138 / 0.8);
+  box-shadow: 0 0 0 1px rgb(234 179 8 / 0.25);
+}
+
+.ProseMirror .edgeever-search-match-active {
+  background-color: rgb(251 191 36 / 0.9);
+  box-shadow: 0 0 0 2px rgb(217 119 6 / 0.45);
+}
+
 @media (max-width: 1023px) {
   .ProseMirror {
     padding: 18px 16px max(4rem, env(safe-area-inset-bottom));
@@ -328,40 +341,9 @@ textarea {
   display: block;
 }
 
-/* Highlight.js-compatible token classes emitted by Tiptap/lowlight. */
-.ProseMirror pre .hljs-comment,
-.ProseMirror pre .hljs-quote {
-  color: #64748b;
-}
-
-.ProseMirror pre .hljs-keyword,
-.ProseMirror pre .hljs-selector-tag,
-.ProseMirror pre .hljs-literal,
-.ProseMirror pre .hljs-name,
-.ProseMirror pre .hljs-attribute {
-  color: #7c3aed;
-}
-
-.ProseMirror pre .hljs-string,
-.ProseMirror pre .hljs-title,
-.ProseMirror pre .hljs-section,
-.ProseMirror pre .hljs-built_in,
-.ProseMirror pre .hljs-type {
-  color: #047857;
-}
-
-.ProseMirror pre .hljs-number,
-.ProseMirror pre .hljs-symbol,
-.ProseMirror pre .hljs-bullet,
-.ProseMirror pre .hljs-variable,
-.ProseMirror pre .hljs-template-variable {
-  color: #c2410c;
-}
-
-.ProseMirror pre .hljs-meta,
-.ProseMirror pre .hljs-regexp,
-.ProseMirror pre .hljs-link {
-  color: #0369a1;
+/* lowlight emits Highlight.js token classes inside a div-based Tiptap node view. */
+.ProseMirror .edgeever-code-block {
+  color: #24292e;
 }
 
 .ProseMirror hr {

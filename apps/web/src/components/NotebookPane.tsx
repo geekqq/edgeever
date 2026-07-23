@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   CircleUserRound,
   Download,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -236,6 +237,9 @@ export const NotebookPane = ({
   authRequired,
   onLogout,
   isLoggingOut,
+  demoMode = false,
+  onResetDemo,
+  isResettingDemo = false,
 }: {
   user: AuthUser | null;
   view: string;
@@ -264,6 +268,9 @@ export const NotebookPane = ({
   authRequired: boolean;
   onLogout: () => void;
   isLoggingOut: boolean;
+  demoMode?: boolean;
+  onResetDemo?: () => void;
+  isResettingDemo?: boolean;
 }) => {
   const { t } = useTranslation();
   const { isInstallable, install } = usePwaInstall();
@@ -413,6 +420,13 @@ export const NotebookPane = ({
             label={t("notebookPane.allMemos")}
             onClick={onBackToList}
           />
+          {demoMode && onResetDemo && (
+            <SidebarNavButton
+              icon={<RotateCcw className={cn("h-4 w-4 text-amber-600", isResettingDemo && "animate-spin")} />}
+              label={isResettingDemo ? t("demo.resetting") : t("demo.resetButton")}
+              onClick={onResetDemo}
+            />
+          )}
         </nav>
 
         <div className="group mb-2 flex items-center justify-between gap-2">
