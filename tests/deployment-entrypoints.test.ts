@@ -14,7 +14,7 @@ describe("Cloudflare deployment entrypoints", () => {
     expect(scripts.deploy).toContain("EDGE_EVER_USE_EXISTING_AUTH_SECRET=true");
     expect(scripts.deploy).toContain("deploy:ci");
     expect(scripts["deploy:manual"]).toBe(
-      "bun run deploy:doctor && bun run build:cloudflare && bun run deploy:ci",
+      "export EDGE_EVER_DEPLOYMENT_TRIGGER=manual EDGE_EVER_DEPLOYMENT_METHOD=local_cli && bun run deploy:doctor && bun run build:cloudflare && bun run deploy:ci",
     );
     expect(scripts["deploy:ci"]).toBe(
       "bun run db:migrate:remote && bun run deploy:worker && bun run deploy:verify",

@@ -1,6 +1,6 @@
 # Deploy EdgeEver with Cloudflare
 
-The **Deploy to Cloudflare** button is the recommended first-installation path. It creates a repository in your GitHub account, provisions the Worker, D1 database, and R2 bucket, applies the database migrations, and connects the repository to Cloudflare Workers Builds.
+The **Deploy to Cloudflare** button is the recommended first-installation path. It creates a repository in your GitHub account, provisions the EdgeEver product Worker, D1 database, and R2 bucket, applies the database migrations, and connects the repository to Cloudflare Workers Builds. It does not deploy the official marketing site in `apps/site`; that site is a separate upstream-only Cloudflare Pages project.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tianma-if/edgeever)
 
@@ -30,4 +30,4 @@ GitHub may delay scheduled workflows and may disable them for an inactive public
 - Use [AI Agent Cloudflare Deployment](agent-deploy-cloudflare.md) when an agent should perform the same deterministic CLI deployment with custom configuration.
 - Use [Cloudflare Manual Deployment](manual-deploy.md) for advanced configuration, troubleshooting, or emergency recovery.
 
-All three entry points share the same build, migration, Worker deployment, and verification commands. After first installation, they converge on Workers Builds and the same automatic-update workflow.
+All three entry points share the same product Worker build, migration, deployment, and verification commands. They do not require the official site. After first installation, they converge on Workers Builds and the same automatic-update workflow.

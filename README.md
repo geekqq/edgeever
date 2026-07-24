@@ -32,7 +32,7 @@ The public demo resets every Monday at 1:00 AM (China Standard Time) and restore
 
 ## Features
 
-- Serverless, 100% free, and zero maintenance: Built on Cloudflare's Serverless architecture, running entirely within free tiers. Store up to 150k notes and 50k images without any hosting fees, while enjoying near-instant response times globally.
+- Serverless, 100% free, and zero maintenance: Built on Cloudflare's Serverless architecture, running entirely within free tiers. Store up to 150k notes and 50k images or other attachments without any hosting fees, while enjoying near-instant response times globally.
 - Open data: notes are stored in Cloudflare D1, based on standard SQLite, and can be read and managed through REST API, MCP, and CLI without locking your data to a single notes product.
 - EdgeEver ZIP import and export: one archive combines human-readable Markdown, Front Matter, nested notebook structure, and relative-path attachments with versioned structured data and revision history for complete recovery between EdgeEver instances.
 - AI Agent friendly: built-in MCP support lets tools such as Codex, Claude Code, and Antigravity read, organize, and maintain notes, while enabling integrations with Notion databases and Feishu Bitable.
@@ -44,6 +44,7 @@ The public demo resets every Monday at 1:00 AM (China Standard Time) and restore
 - Mermaid diagrams rendered from standard fenced code blocks on the Web and native app, with editable source preserved across rich text and Markdown views.
 - Note version history for reviewing previous content changes.
 - Local browser-side image compression before upload, often reducing screenshots and large photos by about 50%-90%.
+- Upload and insert general file attachments such as PDFs, office documents, archives, audio, and video into notes.
 - Batch note merging.
 - Batch note moving, notebook drag sorting, and hierarchy editing.
 - Offline drafts and local sync queue for existing notes.
@@ -225,6 +226,10 @@ If you want to migrate notes from other platforms to EdgeEver, please refer to t
 ## Docker Deployment Roadmap
 
 > 🐳 Docker-based self-hosting for VPS, NAS, and home servers is on the roadmap and will follow once the core features are stable. It is not yet available in current releases.
+
+## Acknowledgements
+
+- The visual design of the editor themes is inspired by [gzh-design-skill](https://github.com/isjiamu/gzh-design-skill), whose themes were originally created by Jiamu (甲木) × Moyu Xiaoli (摸鱼小李). Thanks for their open-source work.
 
 ## Disclaimer
 

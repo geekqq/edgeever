@@ -1,4 +1,5 @@
 @import "highlight.js/styles/github.css";
+@import "./editor-themes/index.css";
 
 @tailwind base;
 @tailwind components;
@@ -172,6 +173,9 @@ textarea {
 }
 
 .ProseMirror {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
   color: #000;
   font-size: var(--editor-body-font-size);
   line-height: var(--editor-body-line-height);
@@ -193,6 +197,8 @@ textarea {
 
 @media (max-width: 1023px) {
   .ProseMirror {
+    max-width: none;
+    margin: 0;
     padding: 18px 16px max(4rem, env(safe-area-inset-bottom));
   }
 }
@@ -220,6 +226,50 @@ textarea {
 .ProseMirror p {
   line-height: var(--editor-body-line-height);
   margin: 0 0 var(--editor-paragraph-spacing);
+}
+
+.ProseMirror a.edgeever-attachment-link,
+.ProseMirror a[href*="/api/v1/resources/"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: min(100%, 30rem);
+  padding: 0.3rem 0.55rem;
+  border: 1px solid rgb(203 213 225 / 0.9);
+  border-radius: 0.45rem;
+  background: linear-gradient(135deg, rgb(248 250 252), rgb(241 245 249));
+  color: rgb(30 41 59);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06);
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.ProseMirror li:has(> p > a[href*="/api/v1/resources/"]) {
+  margin-bottom: 0.25rem;
+}
+
+.ProseMirror a.edgeever-attachment-link::before,
+.ProseMirror a[href*="/api/v1/resources/"]::before {
+  content: "📎";
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+}
+
+.ProseMirror a.edgeever-attachment-link:hover,
+.ProseMirror a[href*="/api/v1/resources/"]:hover {
+  border-color: rgb(16 185 129 / 0.55);
+  background: linear-gradient(135deg, rgb(236 253 245), rgb(240 253 250));
+  box-shadow: 0 3px 10px rgb(15 118 110 / 0.12);
+}
+
+:root.dark .ProseMirror a.edgeever-attachment-link,
+:root.dark .ProseMirror a[href*="/api/v1/resources/"] {
+  border-color: rgb(71 85 105 / 0.8);
+  background: linear-gradient(135deg, rgb(30 41 59), rgb(15 23 42));
+  color: rgb(226 232 240);
 }
 
 .ProseMirror ul,
@@ -276,7 +326,31 @@ textarea {
 
 .ProseMirror .edgeever-code-block,
 .ProseMirror .edgeever-mermaid-code-block {
+  position: relative;
   margin: 0 0 1rem;
+}
+
+.ProseMirror .edgeever-code-copy-button {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  z-index: 1;
+  border: 1px solid #cbded1;
+  border-radius: 5px;
+  padding: 0.2rem 0.45rem;
+  background: rgb(247 251 248 / 0.92);
+  color: #475569;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.ProseMirror .edgeever-code-copy-button:hover,
+.ProseMirror .edgeever-code-copy-button:focus-visible {
+  border-color: #0f766e;
+  color: #0f766e;
+  outline: none;
 }
 
 .ProseMirror .edgeever-code-source {
@@ -289,6 +363,7 @@ textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.875em;
   white-space: pre;
+  padding-right: 5.5rem;
 }
 
 .ProseMirror .edgeever-mermaid-code-block {
@@ -682,6 +757,28 @@ textarea {
   .markdown-content td {
     width: var(--mobile-table-column-width);
     min-width: var(--mobile-table-column-width);
+  }
+}
+
+@media (min-width: 768px) {
+  .ProseMirror .tableWrapper {
+    width: 100%;
+  }
+
+  .ProseMirror table {
+    width: 100%;
+    min-width: 100% !important;
+    table-layout: auto;
+  }
+
+  .ProseMirror table col {
+    width: auto !important;
+  }
+
+  .ProseMirror th,
+  .ProseMirror td {
+    width: auto;
+    min-width: 0;
   }
 }
 

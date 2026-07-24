@@ -929,8 +929,8 @@
         }
       ],
       "post": {
-        "summary": "Upload image resource for memo",
-        "description": "Uploads an image resource for a memo. Images are stored as provided; server-side compression is disabled.",
+        "summary": "Upload an image or attachment resource for a memo",
+        "description": "Uploads an image or attachment resource for a memo. Images are stored as provided; server-side compression is disabled.",
         "requestBody": {
           "required": true,
           "content": {

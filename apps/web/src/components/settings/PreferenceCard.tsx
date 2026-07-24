@@ -13,7 +13,7 @@ import {
   type AppLocalePreference,
 } from "@/i18n";
 import { ShortcutSettingsItem } from "./ShortcutSettingsItem";
-import { MERMAID_THEME_NAMES, useTheme } from "../ThemeProvider";
+import { EDITOR_THEME_NAMES, MERMAID_THEME_NAMES, useTheme } from "../ThemeProvider";
 
 interface PreferenceCardProps {
   imageCompressionEnabled: boolean;
@@ -29,7 +29,7 @@ export const PreferenceCard = ({
   onShortcutSettingsChange,
 }: PreferenceCardProps) => {
   const { t } = useTranslation();
-  const { mermaidTheme, setMermaidTheme } = useTheme();
+  const { editorTheme, mermaidTheme, setEditorTheme, setMermaidTheme } = useTheme();
   const [activeLocalePreference, setActiveLocalePreference] = useState<AppLocalePreference>(() => getAppLocalePreference());
 
   const handleLocalePreferenceChange = (preference: AppLocalePreference) => {
@@ -64,6 +64,27 @@ export const PreferenceCard = ({
                 {supportedLocales.map((locale) => (
                   <SelectItem key={locale} value={locale}>
                     {localeLabels[locale]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex min-h-16 flex-col items-start gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-900">{t("settings.editorThemeTitle")}</div>
+            <div className="mt-0.5 text-xs leading-4 text-slate-500">{t("settings.editorThemeDescription")}</div>
+          </div>
+          <div className="w-full shrink-0 sm:w-44">
+            <Select value={editorTheme} onValueChange={(value) => setEditorTheme(value as typeof editorTheme)}>
+              <SelectTrigger aria-label={t("settings.editorThemeTitle")} className="h-9 bg-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {EDITOR_THEME_NAMES.map((theme) => (
+                  <SelectItem key={theme} value={theme}>
+                    {t(`settings.editorThemes.${theme}`)}
                   </SelectItem>
                 ))}
               </SelectContent>

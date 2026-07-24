@@ -77,7 +77,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { FadeInDown, FadeOutUp, LinearTransition, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Alert, Pressable, Text, TextInput } from "../components/LocalizedText";
 import Markdown, { type ASTNode, type RenderRules } from "react-native-markdown-display";
@@ -1115,7 +1115,7 @@ export const WorkspaceScreen = () => {
         />
       ) : null}
 
-      {selectedMemoId ? <MemoDetailModal
+      <MemoDetailModal
         isDeleting={deleteMemoMutation.isPending}
         isLoading={memoDetailQuery.isLoading}
         isRestoring={restoreMemoMutation.isPending}
@@ -1127,8 +1127,8 @@ export const WorkspaceScreen = () => {
         onRichEdit={(memo) => void openRichEditor(memo)}
         onOpenRevisions={setRevisionMemo}
         onRestore={(memo) => restoreMemoMutation.mutate(memo)}
-        visible
-      /> : null}
+        visible={Boolean(selectedMemoId)}
+      />
 
       {editorRuntimeWarm ? (
         <EditorRuntimePrewarm
@@ -1163,7 +1163,7 @@ export const WorkspaceScreen = () => {
         }}
       /> : null}
 
-      {createOpen ? <CreateMemoModal
+      <CreateMemoModal
         baseUrl={session?.baseUrl ?? ""}
         dataScope={dataScope}
         defaultNotebookId={defaultMemoNotebookId}
@@ -1177,8 +1177,8 @@ export const WorkspaceScreen = () => {
         }}
         onQueued={runAutomaticSync}
         syncQueueScope={syncQueueScope}
-        visible
-      /> : null}
+        visible={createOpen}
+      />
 
       {selectionMoveOpen ? <MoveSelectionModal
         bottomOffset={58 + safeAreaInsets.bottom}
@@ -2263,31 +2263,38 @@ const CreateMemoModal = ({
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: false,
-        type: ["image/*"],
+        type: "*/*",
       });
       const asset = result.canceled ? null : result.assets[0];
       if (!asset) {
         return;
       }
-      uploadId = createMobileImageUploadId();
-      const previewDataUrl = await createLocalImagePreviewDataUrl(asset);
-      editorRef.current?.beginImageUpload(uploadId, previewDataUrl);
+      const isImage = asset.mimeType?.startsWith("image/") ?? false;
+      if (isImage) {
+        uploadId = createMobileImageUploadId();
+        const previewDataUrl = await createLocalImagePreviewDataUrl(asset);
+        editorRef.current?.beginImageUpload(uploadId, previewDataUrl);
+      }
       const memo = await materializeMemoForImage();
       setImageOperation("uploading");
       const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
       const form = new FormData();
       form.append("file", new ExpoFile(uploadAsset.uri));
       const { resource } = await client!.uploadMemoResource(memo.id, form);
-      editorRef.current?.completeImageUpload(
-        uploadId,
-        resource.url,
-        resource.filename || uploadAsset.name || "图片"
-      );
+      if (resource.kind === "image" && uploadId) {
+        editorRef.current?.completeImageUpload(
+          uploadId,
+          resource.url,
+          resource.filename || uploadAsset.name || "图片"
+        );
+      } else {
+        editorRef.current?.appendAttachment(resource.url, resource.filename || uploadAsset.name || "附件");
+      }
     } catch (error) {
       if (uploadId) {
         editorRef.current?.cancelImageUpload(uploadId);
       }
-      Alert.alert("图片上传失败", error instanceof Error ? error.message : "请检查网络连接后重试");
+      Alert.alert("附件上传失败", error instanceof Error ? error.message : "请检查网络连接后重试");
     } finally {
       setImageOperation("idle");
     }
@@ -2376,7 +2383,7 @@ const CreateMemoModal = ({
   ) : null, [baseUrl, draftLoaded, loadEditorResource, resolvedLocale, resolvedTheme]);
 
   return (
-    <Modal animationType="none" onRequestClose={() => void requestClose()} presentationStyle="fullScreen" visible={visible}>
+    <Modal animationType="slide" onRequestClose={() => void requestClose()} presentationStyle="fullScreen" visible={visible}>
       <SafeAreaView style={styles.createMemoSafeArea}>
         <View style={styles.createMemoHeader}>
           <Pressable accessibilityLabel="返回" accessibilityRole="button" disabled={createMutation.isPending || imageOperation !== "idle"} onPress={() => void requestClose()} style={styles.createMemoBackButton}>
@@ -4549,32 +4556,39 @@ const RichEditorModal = ({
     const result = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
       multiple: false,
-      type: ["image/*"],
+      type: "*/*",
     });
     const asset = result.canceled ? null : result.assets[0];
     if (!asset) {
       return;
     }
 
-    const uploadId = createMobileImageUploadId();
+    const isImage = asset.mimeType?.startsWith("image/") ?? false;
+    const uploadId = isImage ? createMobileImageUploadId() : null;
     uploadingRef.current = true;
     setUploading(true);
     setError(null);
     try {
-      const previewDataUrl = await createLocalImagePreviewDataUrl(asset);
-      editorRef.current?.beginImageUpload(uploadId, previewDataUrl);
+      if (isImage && uploadId) {
+        const previewDataUrl = await createLocalImagePreviewDataUrl(asset);
+        editorRef.current?.beginImageUpload(uploadId, previewDataUrl);
+      }
       const uploadAsset = await prepareUploadAsset(asset, imageCompressionEnabled);
       const form = new FormData();
       form.append("file", new ExpoFile(uploadAsset.uri));
       const { resource } = await client.uploadMemoResource(memo.id, form);
-      editorRef.current?.completeImageUpload(
-        uploadId,
-        resource.url,
-        resource.filename || uploadAsset.name || "图片"
-      );
+      if (resource.kind === "image" && uploadId) {
+        editorRef.current?.completeImageUpload(
+          uploadId,
+          resource.url,
+          resource.filename || uploadAsset.name || "图片"
+        );
+      } else {
+        editorRef.current?.appendAttachment(resource.url, resource.filename || uploadAsset.name || "附件");
+      }
     } catch (uploadError) {
       editorRef.current?.cancelImageUpload(uploadId);
-      setError(uploadError instanceof Error ? uploadError.message : "图片上传失败");
+      setError(uploadError instanceof Error ? uploadError.message : "附件上传失败");
     } finally {
       uploadingRef.current = false;
       setUploading(false);
@@ -5285,9 +5299,23 @@ const MemoCard = memo(function MemoCard({
 }) {
   const localePreference = useMobileLocalePreference();
   const memoTitle = memo.title?.trim() || DEFAULT_MEMO_TITLE;
+  const pressScale = useSharedValue(1);
+  const pressAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }));
 
   return (
-    <View style={[styles.memoCard, listDensity === "compact" && styles.memoCardCompact, selected && styles.memoCardSelected]}>
+    <Animated.View
+      entering={FadeInDown.duration(260).springify().damping(18)}
+      exiting={FadeOutUp.duration(220)}
+      layout={LinearTransition.duration(220)}
+      style={[
+        styles.memoCard,
+        listDensity === "compact" && styles.memoCardCompact,
+        selected && styles.memoCardSelected,
+        pressAnimatedStyle,
+      ]}
+    >
       {selectionMode ? (
         <Pressable
           accessibilityLabel={`${selected ? "取消选择" : "选择"} ${memoTitle}`}
@@ -5307,6 +5335,12 @@ const MemoCard = memo(function MemoCard({
         delayLongPress={520}
         onLongPress={onLongPress}
         onPress={onPress}
+        onPressIn={() => {
+          pressScale.value = withTiming(0.985, { duration: 100 });
+        }}
+        onPressOut={() => {
+          pressScale.value = withTiming(1, { duration: 160 });
+        }}
         style={[styles.memoCardContent, listDensity === "compact" && styles.memoCardContentCompact, selectionMode && styles.memoCardContentWithSelection]}
       >
         <View style={styles.memoCardTop}>
@@ -5331,7 +5365,7 @@ const MemoCard = memo(function MemoCard({
           ))}
         </View>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }, (previous, next) =>
   previous.memo === next.memo &&

@@ -27,6 +27,9 @@ import {
   Search,
   Type,
   X,
+  Check,
+  CircleAlert,
+  LoaderCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GitHubRepositoryLink } from "@/components/GitHubRepositoryLink";
@@ -55,7 +58,9 @@ import {
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EditorToolbar } from "./EditorToolbar";
+import { WeChatIcon } from "./WeChatIcon";
 import { ThemeToggle } from "./ThemeToggle";
+import { useTheme } from "./ThemeProvider";
 import { RevisionHistoryDialog } from "./dialogs/RevisionHistoryDialog";
 import { api } from "@/lib/api";
 import { consumeStandaloneMobileEditorReturn, openStandaloneMobileEditor } from "@/lib/mobile-editor";
@@ -84,6 +89,8 @@ import {
   getEditableMemoTitle,
   getNotebookMoveOptions,
 } from "@/lib/app-helpers";
+import { copyEditorToWeChat, copyMarkdownToWeChat } from "@/lib/wechat-copy";
+import { ThemeBlock } from "./ThemeBlock";
 
 const SUPPORTED_PASTE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
 const MOBILE_EDITOR_QUERY = "(max-width: 639px)";
@@ -232,7 +239,7 @@ const getEditorSearchMatches = (editor: Editor | null, query: string): NoteSearc
   return getSearchMatchesFromDocument(editor.state.doc, query);
 };
 
-const getImageFilesFromDataTransfer = (dataTransfer: DataTransfer | null) => {
+const getResourceFilesFromDataTransfer = (dataTransfer: DataTransfer | null) => {
   if (!dataTransfer) {
     return [];
   }
@@ -243,7 +250,7 @@ const getImageFilesFromDataTransfer = (dataTransfer: DataTransfer | null) => {
     .filter((file): file is File => Boolean(file));
   const files = fileItems.length > 0 ? fileItems : Array.from(dataTransfer.files ?? []);
 
-  return files.filter((file) => SUPPORTED_PASTE_IMAGE_TYPES.has(file.type));
+  return files.filter((file) => file.size > 0);
 };
 
 const ResizableImageNodeView = ({ editor, node, selected, updateAttributes }: NodeViewProps) => {
@@ -1114,6 +1121,7 @@ const RichEditorPane = ({
   onRequestMobileNativeEdit,
 }: RichEditorPaneProps) => {
   const { t } = useTranslation();
+  const { editorTheme } = useTheme();
   const queryClient = useQueryClient();
   const isSelectionMode = Boolean(selectionActionBar);
   const [title, setTitle] = useState("");
@@ -1143,6 +1151,7 @@ const RichEditorPane = ({
   const [mobileImeDebugOpen, setMobileImeDebugOpen] = useState(false);
   const [mobileImeDebugActiveElement, setMobileImeDebugActiveElement] = useState(getActiveElementLabel);
   const [mobileImeDebugEvents, setMobileImeDebugEvents] = useState<MobileImeDebugEntry[]>([]);
+  const [wechatCopyState, setWechatCopyState] = useState<"idle" | "copying" | "copied" | "error">("idle");
   const notebookOptions = useMemo(() => getNotebookMoveOptions(notebooks), [notebooks]);
   const readOnly = isTrashView || Boolean(memo?.isDeleted);
   const mobileDefaultEditRequested = Boolean(memo?.id && memo.id === mobileDefaultEditMemoId && !readOnly);
@@ -1232,55 +1241,6 @@ const RichEditorPane = ({
     }
   }, [focusMobileInputTarget, isMobileViewport, memo?.id, mobileDefaultEditMemoId, onMobileDefaultEditConsumed, readOnly]);
 
-  const insertImageFiles = useCallback((files: File[]) => {
-    const currentMemo = memoRef.current;
-    const currentEditor = editorRef.current;
-
-    if (!currentMemo || currentMemo.isDeleted || !currentEditor || !currentEditor.isEditable || files.length === 0) {
-      return;
-    }
-
-    const targetMemoId = currentMemo.id;
-
-    void (async () => {
-      setImageUploadState("uploading");
-
-      try {
-        for (const file of files) {
-          const shouldCompress = imageCompressionEnabledRef.current;
-          setImageUploadState(shouldCompress ? "compressing" : "uploading");
-          const uploadFile = shouldCompress ? (await compressImageForUpload(file)).file : file;
-
-          setImageUploadState("uploading");
-          const { resource } = await api.uploadMemoResource(targetMemoId, uploadFile);
-          void queryClient.invalidateQueries({ queryKey: ["resources"] });
-
-          const activeEditor = editorRef.current;
-          if (memoRef.current?.id !== targetMemoId || !isEditorReady(activeEditor)) {
-            setImageUploadState("idle");
-            return;
-          }
-
-          activeEditor
-            .chain()
-            .focus()
-            .setImage({
-              src: resource.url,
-              alt: file.name,
-              title: file.name,
-              width: DEFAULT_IMAGE_WIDTH_PERCENT,
-            })
-            .run();
-        }
-
-        setImageUploadState("idle");
-      } catch {
-        setImageUploadState("error");
-        window.setTimeout(() => setImageUploadState("idle"), 2200);
-      }
-    })();
-  }, [queryClient]);
-
   const insertResourceFiles = useCallback((files: File[]) => {
     const currentMemo = memoRef.current;
     const currentEditor = editorRef.current;
@@ -1328,7 +1288,14 @@ const RichEditorPane = ({
               .focus()
               .insertContent({
                 type: "paragraph",
-                content: [{ type: "text", text: t("editor.attachmentInsertText", { filename: resource.filename || file.name, url: resource.url }) }],
+                content: [{
+                  type: "text",
+                  text: t("editor.attachmentLabel", { filename: resource.filename || file.name }),
+                  marks: [{
+                    type: "link",
+                    attrs: { href: resource.url, target: "_blank", class: "edgeever-attachment-link" },
+                  }],
+                }],
               })
               .run();
           }
@@ -1340,12 +1307,13 @@ const RichEditorPane = ({
         window.setTimeout(() => setImageUploadState("idle"), 2200);
       }
     })();
-  }, [queryClient]);
+  }, [queryClient, t]);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
       EdgeEverCodeBlock.configure({ lowlight: codeBlockLowlight, defaultLanguage: "plaintext" }),
+      ThemeBlock,
       ResizableImage.configure({
         allowBase64: false,
         inline: false,
@@ -1397,25 +1365,25 @@ const RichEditorPane = ({
         return true;
       },
       handlePaste: (_view, event) => {
-        const files = getImageFilesFromDataTransfer(event.clipboardData);
+        const files = getResourceFilesFromDataTransfer(event.clipboardData);
 
         if (files.length === 0) {
           return false;
         }
 
         event.preventDefault();
-        insertImageFiles(files);
+        insertResourceFiles(files);
         return true;
       },
       handleDrop: (_view, event) => {
-        const files = getImageFilesFromDataTransfer(event.dataTransfer);
+        const files = getResourceFilesFromDataTransfer(event.dataTransfer);
 
         if (files.length === 0) {
           return false;
         }
 
         event.preventDefault();
-        insertImageFiles(files);
+        insertResourceFiles(files);
         return true;
       },
     },
@@ -1875,7 +1843,12 @@ const RichEditorPane = ({
       setMobilePlainTextElementValue(mobileTextAreaRef.current, nextMarkdown);
 
       if (isEditorReady(currentEditor)) {
-        currentEditor.commands.setContent(nextContent);
+        try {
+          currentEditor.commands.setContent(nextContent);
+        } catch (err) {
+          console.error("Failed to set TipTap contentJson, falling back to markdownToDoc:", err);
+          currentEditor.commands.setContent(markdownToDoc(nextMarkdown));
+        }
       }
 
       hydratedMemoIdRef.current = memo.id;
@@ -1958,6 +1931,26 @@ const RichEditorPane = ({
     setMarkdownSource(value);
     markDirty();
   }, [markDirty]);
+
+  const handleCopyToWeChat = useCallback(async () => {
+    if (!isEditorReady(editor)) {
+      return;
+    }
+
+    setWechatCopyState("copying");
+    try {
+      if (useMarkdownSourceEditor) {
+        await copyMarkdownToWeChat(markdownSource);
+      } else {
+        await copyEditorToWeChat(editor);
+      }
+      setWechatCopyState("copied");
+      window.setTimeout(() => setWechatCopyState("idle"), 2200);
+    } catch {
+      setWechatCopyState("error");
+      window.setTimeout(() => setWechatCopyState("idle"), 2600);
+    }
+  }, [editor, markdownSource, useMarkdownSourceEditor]);
 
   useEffect(() => {
     if (!useMobilePlainTextEditor) {
@@ -2045,7 +2038,12 @@ const RichEditorPane = ({
 
       if (useMobilePlainTextEditor && isEditorReady(editorRef.current)) {
         hydratingRef.current = true;
-        editorRef.current.commands.setContent(savedMemo.contentJson);
+        try {
+          editorRef.current.commands.setContent(savedMemo.contentJson);
+        } catch (err) {
+          console.error("Failed to update mobile editor contentJson, falling back to markdownToDoc:", err);
+          editorRef.current.commands.setContent(markdownToDoc(savedMemo.contentMarkdown ?? ""));
+        }
         window.setTimeout(() => {
           hydratingRef.current = false;
         }, 0);
@@ -2600,6 +2598,38 @@ const RichEditorPane = ({
             <Button className="hidden h-8 w-8 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-300 sm:inline-flex" size="icon" variant="ghost" title={t("editor.searchCurrentMemo")} aria-label={t("editor.searchCurrentMemo")} onClick={() => openNoteSearch()}>
               <Search className="h-5 w-5" strokeWidth={2.25} />
             </Button>
+            <TooltipProvider delayDuration={250} skipDelayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    className={cn(
+                      "hidden h-8 w-8 text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-300 sm:inline-flex",
+                      wechatCopyState === "copying" && "bg-slate-100 text-slate-700",
+                      wechatCopyState === "copied" && "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100",
+                      wechatCopyState === "error" && "bg-rose-100 text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100"
+                    )}
+                    size="icon"
+                    variant="ghost"
+                    aria-label={t("editor.copyToWeChat")}
+                    onClick={() => void handleCopyToWeChat()}
+                    disabled={!editor || effectiveReadOnly || useMobilePlainTextEditor || wechatCopyState === "copying"}
+                  >
+                    {wechatCopyState === "copying" ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : wechatCopyState === "copied" ? (
+                      <Check className="h-5 w-5" strokeWidth={2.75} />
+                    ) : wechatCopyState === "error" ? (
+                      <CircleAlert className="h-5 w-5" strokeWidth={2.25} />
+                    ) : (
+                      <WeChatIcon className="h-5 w-5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t(wechatCopyState === "copying" ? "editor.copyingToWeChat" : wechatCopyState === "copied" ? "editor.copiedToWeChat" : wechatCopyState === "error" ? "editor.copyToWeChatFailed" : "editor.copyToWeChat")}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <Button className="hidden h-8 w-8 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-300 sm:inline-flex" size="icon" variant="ghost" title={t("editor.versionHistory")} aria-label={t("editor.versionHistory")} onClick={() => setHistoryOpen(true)}>
               <History className="h-5 w-5" strokeWidth={2.25} />
             </Button>
@@ -2842,12 +2872,14 @@ const RichEditorPane = ({
             readOnly={effectiveReadOnly}
             markdownMode={useMarkdownSourceEditor}
             onMarkdownModeChange={handleMarkdownModeChange}
+            onPickAttachment={() => fileInputRef.current?.click()}
           />
         )}
       </header>
 
       <div
         ref={editorScrollContainerRef}
+        data-editor-theme={editorTheme}
         className={cn(
           "edgeever-editor relative min-h-0 flex-1 bg-white",
           useMobilePlainTextEditor ? "overflow-visible" : "overflow-y-auto"

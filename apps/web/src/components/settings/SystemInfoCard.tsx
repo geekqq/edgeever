@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
-import { ChevronDown, Copy, Info } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowUpCircle, CheckCircle2, ChevronDown, Copy, ExternalLink, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { fetchLatestRelease, isVersionOutdated, type LatestRelease } from "@/lib/version-check";
 import { copyTextToClipboard } from "./settings-utils";
 
 export type SystemInfoItem = {
@@ -53,6 +54,12 @@ const detectOperatingSystem = (userAgent: string, platform: string) => {
   return null;
 };
 
+const getDeploymentDescription = (t: (key: string) => string) => {
+  const trigger = t(`systemInfo.deploymentTriggers.${__EDGEEVER_DEPLOYMENT_TRIGGER__}`);
+  const method = t(`systemInfo.deploymentMethods.${__EDGEEVER_DEPLOYMENT_METHOD__}`);
+  return `${trigger} · ${method}`;
+};
+
 export const getWebSystemInfoItems = (
   t: (key: string) => string,
   language: string
@@ -65,7 +72,14 @@ export const getWebSystemInfoItems = (
 
   return [
     { label: t("systemInfo.version"), value: `v${__EDGEEVER_APP_VERSION__}` },
+    {
+      label: t("systemInfo.releaseTime"),
+      value: __EDGEEVER_RELEASED_AT__
+        ? new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(__EDGEEVER_RELEASED_AT__))
+        : t("systemInfo.unknown"),
+    },
     { label: t("systemInfo.build"), value: __EDGEEVER_BUILD_LABEL__ },
+    { label: t("systemInfo.deployment"), value: getDeploymentDescription(t) },
     {
       label: t("systemInfo.browser"),
       value: detectBrowser(userAgent) ?? t("systemInfo.unknown"),
@@ -87,11 +101,30 @@ export const SystemInfoCard = () => {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [latestRelease, setLatestRelease] = useState<LatestRelease | null>(null);
+  const [releaseCheck, setReleaseCheck] = useState<"idle" | "checking" | "latest" | "outdated" | "error">("idle");
 
   const infoItems = useMemo<SystemInfoItem[]>(
     () => getWebSystemInfoItems(t, i18n.language),
     [i18n.language, t]
   );
+
+  useEffect(() => {
+    if (!expanded || releaseCheck !== "idle") return;
+
+    const controller = new AbortController();
+    setReleaseCheck("checking");
+    void fetchLatestRelease(controller.signal)
+      .then((release) => {
+        setLatestRelease(release);
+        setReleaseCheck(isVersionOutdated(__EDGEEVER_APP_VERSION__, release.tagName) ? "outdated" : "latest");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setReleaseCheck("error");
+      });
+
+    return () => controller.abort();
+  }, [expanded]);
 
   const handleCopy = async () => {
     const details = infoItems.map((item) => `${item.label}: ${item.value}`).join("\n");
@@ -140,6 +173,29 @@ export const SystemInfoCard = () => {
                 {copied ? t("common.copied") : t("systemInfo.copy")}
               </Button>
             </div>
+            {releaseCheck === "outdated" && latestRelease ? (
+              <div className="flex items-start gap-2 rounded-md border border-emerald-200 border-l-2 border-l-emerald-500 bg-emerald-50/40 px-3 py-2 text-slate-800" role="status">
+                <ArrowUpCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                <div className="min-w-0 flex-1 text-xs leading-5">
+                  <div className="font-semibold">{t("systemInfo.updateAvailableTitle")}</div>
+                  <div className="text-slate-500">{t("systemInfo.updateAvailableDescription", { version: latestRelease.tagName })}</div>
+                </div>
+                <a
+                  className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+                  href={latestRelease.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("systemInfo.viewRelease")}
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            ) : releaseCheck === "latest" ? (
+              <div className="flex items-center gap-2 text-xs text-emerald-700" role="status">
+                <CheckCircle2 className="h-4 w-4" />
+                {t("systemInfo.latestVersion")}
+              </div>
+            ) : null}
             <dl className="grid border-y border-slate-200 sm:grid-cols-3">
               {infoItems.map((item) => (
                 <div key={item.label} className="min-w-0 border-b border-slate-200 px-2 py-2.5 sm:px-3">

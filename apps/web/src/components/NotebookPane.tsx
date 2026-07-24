@@ -422,7 +422,7 @@ export const NotebookPane = ({
           />
           {demoMode && onResetDemo && (
             <SidebarNavButton
-              icon={<RotateCcw className={cn("h-4 w-4 text-amber-600", isResettingDemo && "animate-spin")} />}
+              icon={<RotateCcw className={cn("h-4 w-4 text-slate-500", isResettingDemo && "animate-spin text-emerald-600")} />}
               label={isResettingDemo ? t("demo.resetting") : t("demo.resetButton")}
               onClick={onResetDemo}
             />
