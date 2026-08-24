@@ -1,0 +1,19 @@
+{
+  "version": "1.39.0",
+  "changes": {
+    "en-US": [
+      "Switch quickly between recent memos from the workspace and explore refreshed demo notes.",
+      "Use Reading Protection mode and its keyboard shortcut to reduce accidental edits while reviewing notes.",
+      "Enjoy a calmer, more compact workspace with improved Classic and Mermaid rendering.",
+      "Navigate long documents with a refined outline and edit more comfortably on mobile with the new Marxico theme.",
+      "Configure AI models and generation preferences through a clearer, simplified settings layout."
+    ],
+    "zh-CN": [
+      "可在工作区快速切换最近备忘录，并浏览焕新的演示笔记。",
+      "新增阅读保护模式及键盘快捷键，查看笔记时可减少误编辑。",
+      "工作区视觉层级更平静紧凑，并改进经典主题与 Mermaid 图表显示。",
+      "文档大纲导航更顺畅，移动端编辑体验同步优化，并新增 Marxico 主题。",
+      "AI 模型与生成偏好设置布局更清晰简洁。"
+    ]
+  }
+}

@@ -71,6 +71,7 @@ const createEnv = () => {
     sqlite,
     env: {
       DB: new SqliteD1Database(sqlite),
+      EDGE_EVER_ALLOW_UNAUTHENTICATED: "true",
       RESOURCES: {
         delete: async () => undefined,
         get: async () => null,
@@ -118,7 +119,7 @@ sqlite.run(
    )`
 );
 sqlite.run(
-  `INSERT INTO memos_fts (memo_id, title, content_text, tags)
+  `INSERT INTO memo_search_documents (memo_id, title, content_text, tags)
    VALUES ('memo_bug', 'Bug Memo', 'Bug', '')`
 );
 

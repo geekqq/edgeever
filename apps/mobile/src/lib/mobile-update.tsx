@@ -1,83 +1,50 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Constants from "expo-constants";
-import { AppState, Linking, Platform, type AppStateStatus } from "react-native";
+import { AppState, Platform, type AppStateStatus } from "react-native";
 import * as Updates from "expo-updates";
 import { Alert } from "../components/LocalizedText";
 import { useMobileLocale } from "./mobile-locale";
-import { findNewerMobileRelease, GITHUB_LATEST_RELEASE_URL, GOOGLE_PLAY_URL, type MobileRelease } from "./mobile-release";
+import { downloadAndInstallAndroidApk } from "./android-apk-update";
+import { findNewerMobileRelease, type MobileRelease } from "./mobile-release";
 
 const FOREGROUND_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-type MobileUpdateStatus = "idle" | "checking" | "downloading" | "ready";
+type MobileUpdateStatus = "idle" | "checking" | "available" | "downloading" | "ready" | "installing";
+export type MobileUpdateKind = "install" | "ota";
 
 type MobileUpdateContextValue = {
   checkForUpdate: () => Promise<void>;
+  downloadProgress: number | null;
+  hasUpdate: boolean;
+  installedVersion: string | null;
   isSupported: boolean;
+  openUpdate: () => Promise<void>;
   status: MobileUpdateStatus;
+  updateKind: MobileUpdateKind | null;
 };
 
 const MobileUpdateContext = createContext<MobileUpdateContextValue>({
   checkForUpdate: async () => undefined,
+  downloadProgress: null,
+  hasUpdate: false,
+  installedVersion: null,
   isSupported: false,
+  openUpdate: async () => undefined,
   status: "idle",
+  updateKind: null,
 });
 
 export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
   const { resolvedLocale } = useMobileLocale();
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
+  const [installRelease, setInstallRelease] = useState<MobileRelease | null>(null);
   const [status, setStatus] = useState<MobileUpdateStatus>("idle");
+  const [updateKind, setUpdateKind] = useState<MobileUpdateKind | null>(null);
   const activeCheckRef = useRef<Promise<void> | null>(null);
   const lastAutomaticCheckRef = useRef(0);
   const isSupported = !__DEV__ && Updates.isEnabled;
   const english = resolvedLocale === "en-US";
   const installedVersion = Updates.runtimeVersion ?? Constants.expoConfig?.version ?? null;
-
-  const openUpdateUrl = useCallback((url: string) => {
-    void Linking.openURL(url).catch(() => {
-      Alert.alert(
-        english ? "Unable to open update page" : "无法打开更新页面",
-        english ? "Open the app store or GitHub Releases and try again." : "请手动打开应用商店或 GitHub Releases 后重试。"
-      );
-    });
-  }, [english]);
-
-  const showInstallableUpdatePrompt = useCallback((release: MobileRelease) => {
-    Alert.alert(
-      english ? "New app version available" : "发现新版本",
-      english
-        ? `Version v${release.version} is available. This update includes an installable app package and cannot be applied as an in-app update.`
-        : `发现可安装的新版本 v${release.version}。此类更新包含新的应用安装包，无法通过应用内热更新完成。`,
-      [
-        { text: english ? "Later" : "稍后", style: "cancel" },
-        { text: "Google Play", onPress: () => openUpdateUrl(GOOGLE_PLAY_URL) },
-        { text: "GitHub", onPress: () => openUpdateUrl(GITHUB_LATEST_RELEASE_URL) },
-      ]
-    );
-  }, [english, openUpdateUrl]);
-
-  const restart = useCallback(async () => {
-    try {
-      await Updates.reloadAsync();
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      Alert.alert(
-        english ? "Unable to restart" : "重启失败",
-        english ? `Close and reopen EdgeEver to apply the update.\n\n${detail}` : `请关闭并重新打开 EdgeEver 以应用更新。\n\n${detail}`
-      );
-    }
-  }, [english]);
-
-  const showRestartPrompt = useCallback(() => {
-    Alert.alert(
-      english ? "Update ready" : "更新已就绪",
-      english
-        ? "The update has been downloaded. Restart EdgeEver now to apply it?"
-        : "新版本已下载完成。现在重启 EdgeEver 以应用更新吗？",
-      [
-        { text: english ? "Later" : "稍后", style: "cancel" },
-        { text: english ? "Restart now" : "立即重启", onPress: () => void restart() },
-      ]
-    );
-  }, [english, restart]);
 
   const runCheck = useCallback((userInitiated: boolean) => {
     if (activeCheckRef.current) {
@@ -97,61 +64,41 @@ export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const check = (async () => {
-      let installableReleaseCheckFailed = false;
       try {
         setStatus("checking");
 
-        if (userInitiated && Platform.OS === "android") {
+        if (Platform.OS === "android") {
           try {
             if (!installedVersion) {
               throw new Error("Installed app version is unavailable");
             }
             const release = await findNewerMobileRelease(installedVersion);
             if (release) {
-              setStatus("idle");
-              showInstallableUpdatePrompt(release);
+              setInstallRelease(release);
+              setUpdateKind("install");
+              setStatus("available");
               return;
             }
           } catch {
-            installableReleaseCheckFailed = true;
+            // Fall back to Expo's in-app update check when the release API is unavailable.
           }
         }
 
         const result = await Updates.checkForUpdateAsync();
 
         if (!result.isAvailable) {
+          setInstallRelease(null);
+          setUpdateKind(null);
           setStatus("idle");
-          if (userInitiated) {
-            if (installableReleaseCheckFailed) {
-              Alert.alert(
-                english ? "Unable to fully check for updates" : "无法完成更新检查",
-                english
-                  ? "No compatible in-app update was found, but the latest installable app version could not be verified. Check your connection and try again."
-                  : "未发现兼容的应用内热更新，但无法确认最新安装包版本。请检查网络连接后重试。"
-              );
-            } else {
-              Alert.alert(
-                english ? "You're up to date" : "已是最新版本",
-                english ? "No newer app package or compatible in-app update is available." : "当前没有更新的安装包或兼容的应用内热更新。"
-              );
-            }
-          }
           return;
         }
 
-        setStatus("downloading");
-        await Updates.fetchUpdateAsync();
-        setStatus("ready");
-        showRestartPrompt();
-      } catch (error) {
+        setUpdateKind("ota");
+        setStatus("available");
+      } catch {
+        setInstallRelease(null);
+        setUpdateKind(null);
         setStatus("idle");
-        if (userInitiated) {
-          const detail = error instanceof Error ? error.message : String(error);
-          Alert.alert(
-            english ? "Unable to check for updates" : "检查更新失败",
-            english ? `Check your connection and try again.\n\n${detail}` : `请检查网络连接后重试。\n\n${detail}`
-          );
-        }
       }
     })();
 
@@ -160,7 +107,7 @@ export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
       activeCheckRef.current = null;
     });
     return check;
-  }, [english, installedVersion, isSupported, showInstallableUpdatePrompt, showRestartPrompt]);
+  }, [english, installedVersion, isSupported]);
 
   useEffect(() => {
     const attemptAutomaticCheck = () => {
@@ -183,19 +130,116 @@ export const MobileUpdateProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [runCheck]);
 
+  const openUpdate = useCallback(async () => {
+    if (updateKind === "install") {
+      if (Platform.OS !== "android" || !installRelease || status === "downloading" || status === "installing") {
+        return;
+      }
+      const sizeMb = Math.max(1, Math.ceil(installRelease.size / 1024 / 1024));
+      Alert.alert(
+        english ? "Update available" : "发现新版本",
+        english
+          ? `EdgeEver ${installRelease.version} is available. Download ${sizeMb} MB and install it now?`
+          : `EdgeEver ${installRelease.version} 已发布。是否立即下载 ${sizeMb} MB 安装包并更新？`,
+        [
+          {
+            text: english ? "Cancel" : "取消",
+            style: "cancel",
+          },
+          {
+            text: english ? "Download & install" : "下载并安装",
+            onPress: () => {
+              setDownloadProgress(0);
+              setStatus("downloading");
+              void downloadAndInstallAndroidApk(
+                installRelease,
+                ({ progress }) => setDownloadProgress(progress),
+                () => setStatus("installing")
+              ).then(() => {
+                setDownloadProgress(null);
+                setStatus("available");
+              }).catch(() => {
+                setDownloadProgress(null);
+                setStatus("available");
+                Alert.alert(
+                  english ? "Update failed" : "更新失败",
+                  english
+                    ? "Could not download or open the installer. Try again later."
+                    : "无法下载安装包或打开系统安装器，请稍后重试。"
+                );
+              });
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    if (updateKind !== "ota" || !isSupported) {
+      return;
+    }
+
+    try {
+      if (status === "ready") {
+        await Updates.reloadAsync();
+        return;
+      }
+
+      setStatus("downloading");
+      const result = await Updates.fetchUpdateAsync();
+      if (!result.isNew) {
+        setUpdateKind(null);
+        setStatus("idle");
+        if (english) {
+          Alert.alert("No update", "No downloadable in-app update was found.");
+        } else {
+          Alert.alert("暂无更新", "没有可下载的应用内更新。");
+        }
+        return;
+      }
+
+      setStatus("ready");
+      Alert.alert(
+        english ? "Update ready" : "更新已就绪",
+        english ? "Restart now to apply the update." : "重启后即可应用更新。",
+        [
+          {
+            text: english ? "Later" : "稍后",
+            style: "cancel",
+          },
+          {
+            text: english ? "Restart" : "立即重启",
+            onPress: () => {
+              void Updates.reloadAsync();
+            },
+          },
+        ]
+      );
+    } catch {
+      setStatus("available");
+      Alert.alert(
+        english ? "Update failed" : "更新失败",
+        english
+          ? "Could not download the in-app update. Try again later."
+          : "无法下载应用内更新，请稍后再试。"
+      );
+    }
+  }, [english, installRelease, isSupported, status, updateKind]);
+
   const value = useMemo<MobileUpdateContextValue>(
     () => ({
       checkForUpdate: () => {
-        if (status === "ready") {
-          showRestartPrompt();
-          return Promise.resolve();
-        }
         return runCheck(true);
       },
+      downloadProgress,
+      hasUpdate: status === "available" || status === "ready" || status === "downloading" || status === "installing",
+      installedVersion,
       isSupported,
+      openUpdate,
       status,
+      updateKind,
     }),
-    [isSupported, runCheck, showRestartPrompt, status]
+    [downloadProgress, installedVersion, isSupported, openUpdate, runCheck, status, updateKind]
   );
 
   return <MobileUpdateContext.Provider value={value}>{children}</MobileUpdateContext.Provider>;

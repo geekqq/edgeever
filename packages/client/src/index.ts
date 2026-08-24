@@ -7,17 +7,32 @@ import type {
   CreatedApiToken,
   JsonBackupMemo,
   JsonBackupNotebook,
+  JsonBackupAiPrompt,
   JsonBackupRevision,
   MemoDetail,
   MemoEditSession,
   MemoRevision,
   MemoSummary,
+  MemoShare,
+  MemoTemplate,
   Notebook,
   Resource,
   ResourceListItem,
   ResourceStorageSummary,
+  PublicMemoShare,
   TagSummary,
   TiptapDoc,
+  AiSettings,
+  AiDiscoveredModel,
+  AiProvider,
+  AiPromptTemplate,
+  AiPromptTemplateCreateInput,
+  AiPromptTemplateUpdateInput,
+  AiStreamEvent,
+  AiGenerateInput,
+  AiTagSuggestionPromptUpdateInput,
+  AiTagSuggestionsRequestInput,
+  AiTagSuggestionsResponse,
 } from "@edgeever/shared";
 
 export type EdgeEverClientOptions = {
@@ -74,6 +89,22 @@ export type MemoResponse = {
   memo: MemoDetail;
 };
 
+export type ListTemplatesResponse = {
+  templates: MemoTemplate[];
+};
+
+export type TemplateResponse = {
+  template: MemoTemplate;
+};
+
+export type MemoShareResponse = {
+  share: MemoShare | null;
+};
+
+export type PublicMemoShareResponse = {
+  share: PublicMemoShare;
+};
+
 export type NotebookResponse = {
   notebook: Notebook;
 };
@@ -91,6 +122,23 @@ export type MarkdownExportPage = {
 
 export type JsonBackupPage = MarkdownExportPage & {
   revisions: JsonBackupRevision[];
+};
+
+export type AiProviderCreatePayload = {
+  provider: AiProvider;
+  displayName: string;
+  baseUrl: string;
+  apiKey: string;
+  isEnabled: boolean;
+  initialModelId?: string;
+};
+
+export type AiProviderUpdatePayload = {
+  provider: AiProvider;
+  displayName: string;
+  baseUrl: string;
+  apiKey?: string;
+  isEnabled: boolean;
 };
 
 export type MobileSyncBootstrapPage = {
@@ -173,6 +221,9 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
   return {
     getSession: () => request<AuthSession>("/api/v1/auth/session"),
 
+    getPublicMemoShare: (token: string) =>
+      request<PublicMemoShareResponse>(`/api/public/shares/${encodeURIComponent(token)}`),
+
     listLoginDeviceSessions: () =>
       request<ListLoginDeviceSessionsResponse>("/api/v1/auth/sessions"),
 
@@ -193,6 +244,140 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
         method: "POST",
         body: JSON.stringify(payload),
       }),
+
+    getAiSettings: (locale?: string) => {
+      const search = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+      return request<AiSettings>(`/api/v1/ai/settings${search}`);
+    },
+
+    createAiProvider: (payload: AiProviderCreatePayload) =>
+      request<AiSettings>("/api/v1/ai/providers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    updateAiProvider: (providerConfigId: string, payload: AiProviderUpdatePayload) =>
+      request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+
+    deleteAiProvider: (providerConfigId: string) =>
+      request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}`, {
+        method: "DELETE",
+      }),
+
+    testAiProvider: (providerConfigId: string, payload: { modelId: string }) =>
+      request<{ ok: true; response: string }>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/test`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    discoverAiProviderModels: (providerConfigId: string) =>
+      request<{ models: AiDiscoveredModel[] }>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/discover-models`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+
+    addAiModel: (providerConfigId: string, payload: { modelId: string; displayName?: string }) =>
+      request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    deleteAiModel: (providerConfigId: string, modelConfigId: string) =>
+      request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models/${encodeURIComponent(modelConfigId)}`, {
+        method: "DELETE",
+      }),
+
+    updateDefaultAiModel: (modelConfigId: string | null) =>
+      request<AiSettings>("/api/v1/ai/default-model", {
+        method: "PUT",
+        body: JSON.stringify({ modelConfigId }),
+      }),
+
+    updateAiTagSuggestionPrompt: (payload: AiTagSuggestionPromptUpdateInput, locale?: string) =>
+      request<AiSettings>(`/api/v1/ai/tag-suggestion-prompt${locale ? `?locale=${encodeURIComponent(locale)}` : ""}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+
+    listAiPrompts: (locale?: string) => {
+      const search = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+      return request<{ prompts: AiPromptTemplate[] }>(`/api/v1/ai/prompts${search}`);
+    },
+
+    createAiPrompt: (payload: AiPromptTemplateCreateInput) =>
+      request<{ prompt: AiPromptTemplate }>("/api/v1/ai/prompts", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    updateAiPrompt: (
+      promptId: string,
+      payload: AiPromptTemplateUpdateInput,
+    ) =>
+      request<{ prompt: AiPromptTemplate }>(`/api/v1/ai/prompts/${encodeURIComponent(promptId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }),
+
+    deleteAiPrompt: (promptId: string) =>
+      request<{ ok: true }>(`/api/v1/ai/prompts/${encodeURIComponent(promptId)}`, {
+        method: "DELETE",
+      }),
+
+    restoreDefaultAiPrompts: (locale?: string) => {
+      const search = locale ? `?locale=${encodeURIComponent(locale)}` : "";
+      return request<{ prompts: AiPromptTemplate[]; restoredCount: number }>(`/api/v1/ai/prompts/restore-defaults${search}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+
+    suggestAiTags: (payload: AiTagSuggestionsRequestInput, signal?: AbortSignal) =>
+      request<AiTagSuggestionsResponse>("/api/v1/ai/tag-suggestions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        signal,
+      }),
+
+    streamAiGeneration: async (
+      payload: AiGenerateInput,
+      streamOptions: { signal?: AbortSignal; onEvent: (event: AiStreamEvent) => void },
+    ) => {
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
+      const response = await fetchImpl(`${baseUrl}/api/v1/ai/generate`, {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify(payload),
+        signal: streamOptions.signal,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null;
+        if (response.status === 401) options.onUnauthorized?.();
+        throw new ApiRequestError(body?.error?.message || response.statusText, response.status, body?.error?.code);
+      }
+      if (!response.body) throw new ApiRequestError("Streaming response is unavailable", 502, "ai_stream_unavailable");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+          if (data) streamOptions.onEvent(JSON.parse(data) as AiStreamEvent);
+        }
+        if (done) break;
+      }
+      const trailingData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
+      if (trailingData) streamOptions.onEvent(JSON.parse(trailingData) as AiStreamEvent);
+    },
 
     listUsers: () => request<ListUsersResponse>("/api/v1/users"),
 
@@ -274,6 +459,7 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       notebookId?: string | null;
       includeDescendants?: boolean;
       q?: string;
+      tag?: string;
       trash?: boolean;
       sort?: MemoSortMode;
       filter?: MemoFilterMode;
@@ -292,6 +478,10 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
 
       if (params.q?.trim()) {
         search.set("q", params.q.trim());
+      }
+
+      if (params.tag?.trim()) {
+        search.set("tag", params.tag.trim());
       }
 
       if (params.trash) {
@@ -330,6 +520,14 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
         body: JSON.stringify(payload),
       }),
 
+    listTemplates: () => request<ListTemplatesResponse>("/api/v1/templates"),
+
+    useTemplate: (templateId: string, notebookId: string) =>
+      request<MemoResponse>(`/api/v1/templates/${templateId}/use`, {
+        method: "POST",
+        body: JSON.stringify({ notebookId }),
+      }),
+
     moveMemos: (payload: { memoIds: string[]; notebookId: string }) =>
       request<{ ok: true; moved: number }>("/api/v1/memos/batch/move", {
         method: "POST",
@@ -358,6 +556,18 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       return request<MemoResponse>(`/api/v1/memos/${memoId}${suffix}`);
     },
 
+    getMemoShare: (memoId: string) =>
+      request<MemoShareResponse>(`/api/v1/memos/${memoId}/share`),
+
+    createMemoShare: (memoId: string) =>
+      request<{ share: MemoShare }>(`/api/v1/memos/${memoId}/share`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+
+    revokeMemoShare: (memoId: string) =>
+      request<{ ok: true }>(`/api/v1/memos/${memoId}/share`, { method: "DELETE" }),
+
     createMemoEditSession: (memoId: string) =>
       request<{ editSession: MemoEditSession }>(`/api/v1/memos/${memoId}/edit-sessions`, {
         method: "POST",
@@ -373,6 +583,17 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       }),
 
     listResources: () => request<ListResourcesResponse>("/api/v1/resources"),
+
+    renameResource: (resourceId: string, filename: string) =>
+      request<ResourceResponse>(`/api/v1/resources/${encodeURIComponent(resourceId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ filename }),
+      }),
+
+    deleteResource: (resourceId: string) =>
+      request<{ ok: true }>(`/api/v1/resources/${encodeURIComponent(resourceId)}`, {
+        method: "DELETE",
+      }),
 
     getMarkdownExportPage: (offset = 0, limit = 50) =>
       request<MarkdownExportPage>(`/api/v1/exports/markdown?offset=${offset}&limit=${limit}`),
@@ -390,6 +611,12 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       request<{ ok: true }>("/api/v1/restores/json/memos", {
         method: "POST",
         body: JSON.stringify({ memos }),
+      }),
+
+    restoreJsonAiPrompts: (prompts: JsonBackupAiPrompt[]) =>
+      request<{ ok: true }>("/api/v1/restores/json/ai-prompts", {
+        method: "POST",
+        body: JSON.stringify({ prompts }),
       }),
 
     restoreJsonResource: (resourceId: string, metadata: JsonBackupMemo["resources"][number], file: Blob) => {

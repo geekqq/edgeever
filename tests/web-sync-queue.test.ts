@@ -4,7 +4,16 @@ import type { MemoDetail, MemoEditSession } from "@edgeever/shared";
 import type { MemoUpdateSyncPayload } from "../apps/web/src/lib/local-db";
 
 const { localDb } = await import("../apps/web/src/lib/local-db");
-const { getMemoUpdateQueueId, isMemoUpdateAlreadyApplied, queueMemoUpdate, syncQueuedChanges } = await import("../apps/web/src/lib/sync-queue");
+const {
+  discardWebMemoConflict,
+  getMemoCreateQueueId,
+  getMemoUpdateQueueId,
+  isMemoUpdateAlreadyApplied,
+  queueMemoCreate,
+  queueMemoUpdate,
+  syncQueuedChanges,
+} = await import("../apps/web/src/lib/sync-queue");
+const { formatLocalDraftClipboardText } = await import("../apps/web/src/lib/memo-save-conflict");
 const originalFetch = globalThis.fetch;
 
 const payload = (title: string, revision = 0): MemoUpdateSyncPayload => ({
@@ -58,9 +67,10 @@ beforeEach(async () => {
     configurable: true,
     value: { onLine: true },
   });
-  await localDb.transaction("rw", localDb.drafts, localDb.syncQueue, async () => {
+  await localDb.transaction("rw", localDb.drafts, localDb.syncQueue, localDb.memos, async () => {
     await localDb.drafts.clear();
     await localDb.syncQueue.clear();
+    await localDb.memos.clear();
   });
 });
 
@@ -75,6 +85,7 @@ describe("web sync queue concurrency", () => {
 
     expect(queued).toBeDefined();
     expect(isMemoUpdateAlreadyApplied(memo("already saved"), queued!)).toBe(true);
+    expect(isMemoUpdateAlreadyApplied(memo("already saved", 0), queued!)).toBe(false);
     expect(isMemoUpdateAlreadyApplied(memo("different remote text"), queued!)).toBe(false);
   });
 
@@ -126,9 +137,74 @@ describe("web sync queue concurrency", () => {
     const result = await runningSync;
 
     const queued = await localDb.syncQueue.get(getMemoUpdateQueueId("memo_sync_test"));
-    expect(result).toEqual({ attempted: 1, synced: 0, failed: 0, conflicted: 0 });
+    expect(result).toEqual({ attempted: 1, synced: 1, failed: 0, conflicted: 0 });
     expect(queued?.status).toBe("pending");
     expect(queued?.payload.title).toBe("newer text");
+    expect(queued?.payload.expectedRevision).toBe(1);
+    expect(queued?.payload.expectedContentHash).toBe("hash-1");
+  });
+
+  test("queues a draft saved while memo creation is in flight after remapping its id", async () => {
+    const scope = "test-scope";
+    const temporaryId = "local_create_race";
+    const remoteMemo = { ...memo("", 1), id: "memo_created", title: null };
+    const draftTitle = "written during create";
+    const draftContent = payload(draftTitle).contentJson;
+    await queueMemoCreate(scope, {
+      temporaryId,
+      notebookId: "nb_inbox",
+      title: "",
+      contentMarkdown: "",
+      tags: [],
+      createdAt: "2026-07-15T00:00:00.000Z",
+      updatedAt: "2026-07-15T00:00:00.000Z",
+    });
+    await localDb.drafts.put({
+      memoId: temporaryId,
+      title: draftTitle,
+      contentJson: draftContent,
+      tagsText: "",
+      updatedAt: "2026-07-15T00:00:02.000Z",
+    });
+
+    const requests: Array<{ method: string; url: string }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      requests.push({ method, url });
+      if (method === "POST" && url.endsWith("/api/v1/memos")) {
+        return jsonResponse({ memo: remoteMemo }, 201);
+      }
+      if (url.endsWith("/edit-sessions")) {
+        return jsonResponse({ editSession: { ...session(1), memoId: remoteMemo.id } });
+      }
+      return jsonResponse({ memo: { ...remoteMemo, title: draftTitle, contentJson: draftContent, revision: 2, contentHash: "hash-2" } });
+    }) as typeof fetch;
+
+    const createResult = await syncQueuedChanges({ scope });
+    const queuedUpdate = await localDb.syncQueue.get(getMemoUpdateQueueId(remoteMemo.id));
+
+    expect(createResult).toEqual({ attempted: 1, synced: 1, failed: 0, conflicted: 0 });
+    expect(await localDb.syncQueue.get(getMemoCreateQueueId(temporaryId))).toBeUndefined();
+    expect(await localDb.drafts.get(temporaryId)).toBeUndefined();
+    expect(await localDb.drafts.get(remoteMemo.id)).toMatchObject({ title: draftTitle, contentJson: draftContent });
+    expect(queuedUpdate).toMatchObject({
+      kind: "memo.update",
+      scope,
+      memoId: remoteMemo.id,
+      status: "pending",
+      payload: {
+        expectedRevision: 1,
+        expectedContentHash: "hash-1",
+        title: draftTitle,
+        contentJson: draftContent,
+      },
+    });
+
+    const updateResult = await syncQueuedChanges({ scope });
+    expect(updateResult).toEqual({ attempted: 1, synced: 1, failed: 0, conflicted: 0 });
+    expect(requests.some(({ method, url }) => method === "PATCH" && url.endsWith(`/api/v1/memos/${remoteMemo.id}`))).toBe(true);
+    expect(await localDb.syncQueue.get(getMemoUpdateQueueId(remoteMemo.id))).toBeUndefined();
   });
 
   test("keeps a genuine server revision mismatch as a conflict", async () => {
@@ -141,5 +217,44 @@ describe("web sync queue concurrency", () => {
     expect(result).toEqual({ attempted: 1, synced: 0, failed: 0, conflicted: 1 });
     expect(queued?.status).toBe("conflict");
     expect(queued?.payload.title).toBe("offline edit");
+  });
+
+  test("discardWebMemoConflict replaces local draft with the cloud memo", async () => {
+    const scope = "test-scope";
+    await queueMemoUpdate(payload("local conflicted edit"), scope);
+    await localDb.syncQueue.update(getMemoUpdateQueueId("memo_sync_test"), { status: "conflict" });
+    await localDb.drafts.put({
+      memoId: "memo_sync_test",
+      title: "local conflicted edit",
+      tagsText: "",
+      contentJson: payload("local conflicted edit").contentJson,
+      updatedAt: "2026-07-15T00:00:02.000Z",
+    });
+
+    const cloud = memo("cloud wins", 3);
+    globalThis.fetch = (async () => jsonResponse({ memo: cloud })) as typeof fetch;
+
+    const adopted = await discardWebMemoConflict(scope, "memo_sync_test");
+
+    expect(adopted).toEqual(cloud);
+    expect(await localDb.syncQueue.get(getMemoUpdateQueueId("memo_sync_test"))).toBeUndefined();
+    expect(await localDb.drafts.get("memo_sync_test")).toBeUndefined();
+    expect(await localDb.memos.get([scope, "memo_sync_test"])).toMatchObject({
+      title: "cloud wins",
+      revision: 3,
+      scope,
+    });
+  });
+});
+
+describe("local draft clipboard formatting", () => {
+  test("includes title, tags, and body", () => {
+    expect(
+      formatLocalDraftClipboardText({
+        title: "Welcome",
+        tags: ["overview", "demo"],
+        contentMarkdown: "Hello world\n",
+      }),
+    ).toBe("# Welcome\n#overview #demo\n\nHello world");
   });
 });

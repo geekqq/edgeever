@@ -123,6 +123,85 @@ input {
   padding: 10px;
 }
 
+.mobile-editor-fatal {
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  padding: 24px;
+}
+
+.mobile-editor-fatal-card {
+  width: min(100%, 420px);
+  border: 1px solid #fecdd3;
+  border-radius: 14px;
+  background: #fff;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 14px 36px rgb(15 23 42 / 8%);
+}
+
+.mobile-editor-fatal-card h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.mobile-editor-fatal-card p {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.mobile-editor-fatal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.mobile-editor-fatal-actions button {
+  min-height: 40px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+  padding: 8px 16px;
+}
+
+.mobile-editor-fatal-actions button.primary {
+  border-color: #16a06e;
+  background: #16a06e;
+  color: #fff;
+}
+
+:root.dark .mobile-editor-fatal {
+  background: #111827;
+}
+
+:root.dark .mobile-editor-fatal-card {
+  border-color: #7f1d1d;
+  background: #19222b;
+  color: #f8fafc;
+}
+
+:root.dark .mobile-editor-fatal-card p {
+  color: #94a3b8;
+}
+
+:root.dark .mobile-editor-fatal-actions button {
+  border-color: #475569;
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+:root.dark .mobile-editor-fatal-actions button.primary {
+  border-color: #16a06e;
+  background: #16a06e;
+}
+
 .mobile-editor-title,
 .mobile-editor-tags {
   width: 100%;
@@ -237,14 +316,6 @@ input {
   color: #334155;
 }
 
-.mobile-editor-table-menu-trigger {
-  gap: 6px;
-  width: auto;
-  padding-inline: 10px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
 .mobile-editor-sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -254,8 +325,7 @@ input {
   background: rgb(15 23 42 / 0.22);
 }
 
-.mobile-editor-notebook-sheet,
-.mobile-editor-table-sheet {
+.mobile-editor-notebook-sheet {
   width: 100%;
   max-height: 68dvh;
   overflow: hidden;
@@ -278,8 +348,7 @@ input {
 :root.dark .mobile-editor-header,
 :root.dark .mobile-editor-title,
 :root.dark .mobile-editor-tags,
-:root.dark .mobile-editor-notebook-sheet,
-:root.dark .mobile-editor-table-sheet {
+:root.dark .mobile-editor-notebook-sheet {
   background: #1e293b;
   color: #f8fafc;
 }
@@ -392,48 +461,6 @@ input {
   color: #047857;
 }
 
-.mobile-editor-table-action-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 12px;
-}
-
-.mobile-editor-table-action-list button {
-  min-height: 48px;
-  border: 0;
-  border-radius: 10px;
-  background: #f8fafc;
-  color: #334155;
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.mobile-editor-table-action-list button:active {
-  background: #ecfdf5;
-  color: #047857;
-}
-
-.mobile-editor-table-action-list button:disabled {
-  color: #94a3b8;
-  opacity: 0.55;
-}
-
-.mobile-editor-table-action-list button.is-destructive {
-  background: #fff1f2;
-  color: #be123c;
-}
-
-:root.dark .mobile-editor-table-action-list button {
-  background: #334155;
-  color: #e2e8f0;
-}
-
-:root.dark .mobile-editor-table-action-list button.is-destructive {
-  background: #4c0519;
-  color: #fda4af;
-}
-
 .mobile-editor-notebook-option:active {
   background: #f1f5f9;
 }
@@ -449,15 +476,52 @@ input {
   padding: 18px 12px 32px;
   color: #020617;
   font-size: 17px;
-  line-height: 1.7;
+  line-height: 1.6;
   -webkit-user-select: text;
   user-select: text;
   caret-color: auto;
   white-space: pre-wrap;
 }
 
+/* External hyperlinks — match desktop default ProseMirror link styling. */
+.edgeever-mobile-tiptap-content a {
+  color: #00751f;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: rgb(0 117 31 / 0.45);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.edgeever-mobile-tiptap-content a:active,
+.edgeever-mobile-tiptap-content a:hover {
+  color: #16a06e;
+  text-decoration-color: #16a06e;
+}
+
+.edgeever-mobile-tiptap-content a.edgeever-attachment-link,
+.edgeever-mobile-tiptap-content a[href*="/api/v1/resources/"] {
+  text-decoration: none;
+}
+
+:root.dark .edgeever-mobile-tiptap-content a,
+html.dark .edgeever-mobile-tiptap-content a {
+  color: #86efac;
+  text-decoration-color: rgb(134 239 172 / 0.45);
+}
+
+:root.dark .edgeever-mobile-tiptap-content a:active,
+:root.dark .edgeever-mobile-tiptap-content a:hover,
+html.dark .edgeever-mobile-tiptap-content a:active,
+html.dark .edgeever-mobile-tiptap-content a:hover {
+  color: #4ade80;
+  text-decoration-color: #4ade80;
+}
+
 .edgeever-mobile-tiptap-content p {
-  margin: 0 0 0.85em;
+  margin: 0 0 6px;
+  padding: 0;
+  line-height: 1.6;
 }
 
 .edgeever-mobile-tiptap-content h1,
@@ -481,6 +545,47 @@ input {
   list-style-type: decimal;
 }
 
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] {
+  padding-left: 0;
+  list-style: none;
+}
+
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] li[data-checked] {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 4px 0;
+}
+
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] li[data-checked] > label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-top: 3px;
+  user-select: none;
+}
+
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] li[data-checked] > label input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #16a06e;
+}
+
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] li[data-checked] > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] li[data-checked] > div > p {
+  margin-bottom: 0;
+}
+
+.edgeever-mobile-tiptap-content ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin: 4px 0 0;
+  padding-left: 24px;
+}
+
 .edgeever-mobile-tiptap-content blockquote {
   border-left: 3px solid #cbd5e1;
   color: #475569;
@@ -492,6 +597,15 @@ input {
   border: 0;
   border-top: 1px solid #e2e8f0;
   margin: 1.2rem 0;
+}
+
+.edgeever-mobile-tiptap-content hr.edgeever-merge-divider,
+.edgeever-mobile-tiptap-content hr[data-edgeever-merge-divider] {
+  border: 0;
+  border-top: 2px solid var(--memo-content-divider-color, #66ca80);
+  background: transparent;
+  height: 0;
+  margin: 1.5rem 0;
 }
 
 .edgeever-mobile-tiptap-content .edgeever-code-source {
@@ -507,25 +621,83 @@ input {
 }
 
 .edgeever-mobile-tiptap-content .edgeever-mermaid-code-block {
+  position: relative;
   margin: 18px 0;
   overflow: visible;
   background: transparent;
 }
 
+.edgeever-mobile-tiptap-content .edgeever-mermaid-toolbar {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid #d9e2dc;
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: 0 0 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #475569;
+}
+
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  stroke-width: 2;
+}
+
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button:active,
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button:focus-visible,
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button[aria-pressed="true"] {
+  background: #eaf5ee;
+  color: #0f766e;
+  outline: none;
+}
+
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button[data-state="copied"] {
+  color: #15803d;
+}
+
+.edgeever-mobile-tiptap-content .edgeever-mermaid-tool-button[data-state="error"] {
+  color: #be123c;
+}
+
 .edgeever-mobile-tiptap-content .edgeever-mermaid-preview {
   display: flex;
+  max-height: min(70vh, 36rem);
   min-height: 6rem;
   align-items: center;
   justify-content: center;
-  overflow-x: auto;
-  padding: 1rem 0.25rem;
-  background: transparent;
-  cursor: pointer;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  padding: 4rem 0.75rem 0.75rem;
+  border: 1px solid #d9e2dc;
+  border-radius: 8px;
+  background: #fbfdfb;
+  scrollbar-color: rgb(100 116 139 / 0.35) transparent;
 }
 
 .edgeever-mobile-tiptap-content .edgeever-mermaid-svg {
   display: flex;
   width: 100%;
+  min-width: 0;
+  align-self: flex-start;
   justify-content: center;
 }
 

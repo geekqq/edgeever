@@ -42,11 +42,49 @@ describe("production authentication guard", () => {
   test("reports unapplied D1 migrations as database_not_ready", async () => {
     const response = await fetchApi("/api/health", {
       DB: createDatabase({ error: new Error("D1_ERROR: no such table: users") }),
+      EDGE_EVER_AUTH_PASSWORD: "configured-secret",
     });
 
     expect(response.status).toBe(503);
     expect((await response.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "database_not_ready" },
+    });
+  });
+
+  test("reports a missing R2 binding as object_storage_not_ready", async () => {
+    const response = await fetchApi("/api/health", {
+      DB: createDatabase({ userId: "owner" }),
+      EDGE_EVER_AUTH_PASSWORD: "configured-secret",
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "object_storage_not_ready",
+        message: "Object storage is not configured. Bind RESOURCES and redeploy.",
+      },
+    });
+  });
+
+  test("reports healthy only when D1, authentication, and object storage are ready", async () => {
+    const response = await fetchApi("/api/health", {
+      DB: createDatabase({ userId: "owner" }),
+      RESOURCES: {},
+      EDGE_EVER_AUTH_PASSWORD: "configured-secret",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true });
+  });
+
+  test("does not misreport transient D1 failures as unapplied migrations", async () => {
+    const response = await fetchApi("/api/health", {
+      DB: createDatabase({ error: new Error("D1_ERROR: Network connection lost.") }),
+    });
+
+    expect(response.status).toBe(500);
+    expect((await response.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "internal_error" },
     });
   });
 
@@ -94,6 +132,12 @@ describe("production authentication guard", () => {
               };
             }
             return { id: "usr_owner" };
+          },
+          async all() {
+            return { results: [] };
+          },
+          async run() {
+            return { success: true };
           },
         };
       },

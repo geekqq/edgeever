@@ -1,46 +1,35 @@
-# Cloudflare Workers Builds 自动部署
-
-Cloudflare Workers Builds 会在 `main` 发生变化时自动部署 EdgeEver。Cloudflare 一键部署会自动完成连接；CLI 安装只在首次部署或紧急修复时使用本地 `bun run deploy:manual`。官方 Demo Worker 还会在 GitHub 正式 Release 发布后，由 `Deploy Demo on Release` 工作流立即部署。该工作流仅限官方 `tianma-if/edgeever` 仓库执行；Fork 或自托管实例必须使用自己的 Cloudflare 凭据和部署配置。
+# Cloudflare Workers Builds
 
 ## 配置
 
-Cloudflare 一键部署实例不需要执行该配置命令。CLI 或 Agent 安装请先完成[首次部署](manual-deploy.zh-CN.md)，然后执行：
+使用[在线部署文档](deploy-cloudflare-button.zh-CN.md)中的构建命令和部署命令，仓库根目录为 `/`，生产分支为 `main`。
 
-```sh
-bun run deploy:builds:setup
-```
+授权：
 
-命令会读取仓库 remote 与 `.env.local`、配置自动构建，并在首次配置时启动一次验证构建。实例配置发生变化后可以安全重跑。
+1. 为部署仓库授权 **Cloudflare Workers & Pages** GitHub App。
+2. 如果 Agent 集成需要 Cloudflare API Token，使用限制到目标账号的 User API Token。
+3. 部署 API Token 在 Cloudflare **Worker -> Settings -> Builds -> API token** 中配置。
 
-只有命令明确提示时，才需要完成下面对应的操作。
+`EDGE_EVER_AUTH_PASSWORD` 应配置在 Worker 的 **Settings -> Variables and Secrets** 中，作为运行时 Secret；不要把密码复制到 Builds 的构建变量。`deploy:cloudflare-builds` 会复用该 Secret，并在部署后验证它是否存在。
 
-### GitHub 授权
+受版本控制的 `wrangler.toml` 必须保持不变。普通部署使用 D1 `edgeever`、R2 `edgeever-resources` 和用户名 `admin`。`EDGE_EVER_AUTH_USERNAME`、`EDGE_EVER_WORKER_NAME`、`EDGE_EVER_D1_DATABASE_NAME`、`EDGE_EVER_R2_BUCKET_NAME` 与自定义路由等可选非敏感实例参数，应放在 **Settings -> Builds -> Variables and secrets**。Workers Builds 变量只对构建命令可见，不会直接成为 Worker 运行时变量；部署命令会用它们生成临时 Wrangler 配置。密码及其他凭据始终属于运行时 Secret。
 
-为部署仓库安装并授权 **Cloudflare Workers & Pages** GitHub App。这只是应用名称，EdgeEver 实例不需要部署 Pages 项目。授权完成后，命令会继续配置仓库连接。
-
-### 配置 API token
-
-如果缺少 `EDGE_EVER_BUILDS_API_TOKEN`，请在 [My Profile -> API Tokens](https://dash.cloudflare.com/profile/api-tokens) 创建自定义 **User API Token**，权限为：
-
-- **Account** -> **Workers Builds Configuration** -> **Edit**
-- **Account** -> **Workers Scripts** -> **Read**
-
-不要使用 Account API Token 或现成模板。将 token 限制到对应账号，然后把 Cloudflare 仅显示一次的值保存到 `.env.local`：
-
-```text
-EDGE_EVER_BUILDS_API_TOKEN=<token>
-```
-
-不要提交或分享该 token。
-
-![Cloudflare User API Token 权限（脱敏界面图）](assets/cloudflare-workers-builds-user-token.svg)
-
-### 部署 API token
-
-如果命令提示没有可用的部署 API token，请打开 **Worker** -> **Settings** -> **Builds** -> **API token**，创建或选择一个能够部署 Worker 并更新 D1、R2 的 API token，然后重试。存在多个候选时，直接在终端中按名称选择。
+旧版兼容会自动完成：未显式设置 R2 或用户名 Builds 变量时，升级会检查正在承载生产流量的 Worker 版本，并保留其已有的 `RESOURCES` 存储桶和管理员用户名；全新 Worker 才使用标准默认值。
 
 ## 更新与排错
 
-配置完成后，任何推送到 `main` 的提交都会让 Cloudflare 安装依赖、检查并构建应用、执行新的 D1 migration、部署 Worker 并验证结果。官方 Demo Worker 在发布正式 Release 时，会通过 GitHub 的 `Deploy Demo on Release` 工作流从 Release 标签立即部署；该工作流只在官方上游仓库执行。其他自托管部署仓库可以使用 **Update deployed EdgeEver** 工作流每天检查上游：默认 `stable` 跟随正式 Release，设置 Repository Variable `EDGE_EVER_UPDATE_CHANNEL=edge` 后跟随上游 `main`。GitHub Actions 不需要保存 Cloudflare 部署 Secret，也不需要本地重新部署。
-
-构建失败时，在 Worker 的 **Deployments** 页面查看日志。实例配置变化后，重新执行 `bun run deploy:builds:setup`。
+- `main` 推送会自动构建、执行 D1 migration、部署并验证。
+- **Update deployed EdgeEver** 把部署用 Fork 当作上游的 **部署镜像** 来维护：
+  - 默认 `stable` 通道跟随最新正式 Release tag。
+  - 设置 GitHub Repository Variable `EDGE_EVER_UPDATE_CHANNEL=edge` 后跟随上游 `main`。
+  - 只读 Fork（未改应用代码）会用一个新的线性提交应用目标版本的产品代码快照，不安装依赖，也不执行项目测试套件。
+  - 只有显式设置 `EDGE_EVER_PRESERVE_FORK_CHANGES=true` 的 Fork 才会合并产品代码。定制合并会在 push 前执行本地 migration、完整非 E2E 测试、类型检查和生产构建；任一步失败都会保持 `main` 与线上版本不变。
+  - 正式 Release 会在准备 Draft 资产前，由官方 Ubuntu Job 执行同一套完整非 E2E 测试，确保 stable 通道的上游基线本身为绿色；定制 Fork 若失败，应代表合并集成问题，而不是 Release 自带的测试已经失败。
+  - 下游完整的 `.github/workflows/**` 目录和两个更新辅助脚本会作为稳定的本地引导层原样保留。官方打包、签名、测试与 Release 工作流不参与产品代码自动更新，因此 `GITHUB_TOKEN` 无需取得改写 Actions 工作流的权限。
+  - 每次运行都会写中英双语 Job **Summary**，分别展示 Fork 的 Git 状态、部署触发状态和线上验证状态。若定时运行绿色成功并写明 *Already on upstream target* / 已对齐，表示本次未请求部署；push 成功只表示已请求部署，仍需在 Cloudflare 中确认。
+  - 请优先用本工作流，而不是 GitHub **Sync fork**。Sync fork 跟的是上游 `main` 历史，可能让下一次 stable 运行合理变为 no-op。
+- 可选：仓库 Secret `EDGE_EVER_CLOUDFLARE_DEPLOY_HOOK_URL`，在成功 push 后触发 Cloudflare Deploy Hook（Git 集成偶发未构建时有用）。
+- 手动运行工作流时，即使 Git 已是最新，也会推送空 commit 重新触发 Cloudflare 构建；定时检查在已对齐时仍保持 no-op。
+- 构建失败：查看 Worker **Deployments** 日志，确认部署 commit SHA 与 Fork `main` 一致。
+- 定时任务从不运行：公共 Fork 需在 **Actions** 中启用 **Update deployed EdgeEver**（Fork 上 schedule 默认禁用，长期不活跃也可能被暂停）。
+- 更新 push 被 `without workflows permission` 拒绝：说明 Fork 仍在使用旧版更新器。请用仓库所有者权限执行一次 GitHub **Sync fork**，再重新运行 **Update deployed EdgeEver**；完成这次引导后，日常产品更新不再需要 **Sync fork**。

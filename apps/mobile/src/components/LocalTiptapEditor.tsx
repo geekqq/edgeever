@@ -1,15 +1,42 @@
 'use dom';
 
-import "mermaid/dist/mermaid.min.js";
-import { renderMermaidSVG, THEMES } from "beautiful-mermaid";
+import "katex/dist/katex.min.css";
 import Image from "@tiptap/extension-image";
 import CodeBlock from "@tiptap/extension-code-block";
 import Placeholder from "@tiptap/extension-placeholder";
+import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { TableKit } from "@tiptap/extension-table";
-import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
+import { EditorContent, Extension, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import * as Clipboard from "expo-clipboard";
-import type { TiptapDoc } from "@edgeever/shared";
+import {
+  AI_SELECTED_TEXT_ACTIONS,
+  AI_TARGET_LANGUAGES,
+  AI_TONES,
+  AI_WHOLE_NOTE_ACTIONS,
+  canReplaceAiSource,
+  docToMarkdown,
+  getDefaultAiTargetLanguage,
+  getAiDocumentFingerprint,
+  getRichTextAiSelectionContext,
+  getRichTextAiSelectionReplacement,
+  isAiSelectionSnapshotCurrent,
+  markdownToDoc,
+  MEMO_CONTENT_STYLE,
+  MergeDivider,
+  normalizeAiSelectionReplacement,
+  getImageReferrerPolicy,
+  getResourceIdFromUrl,
+  type AiAction,
+  type AiPromptParameterKind,
+  type AiPromptResultMode,
+  type AiPromptTemplate,
+  type AiStreamEvent,
+  type AiTargetLanguage,
+  type AiTone,
+  type TiptapDoc,
+} from "@edgeever/shared";
+import { createEdgeEverMathematics } from "@edgeever/shared/mathematics";
 import {
   DEFAULT_IMAGE_WIDTH_PERCENT,
   IMAGE_WIDTH_PRESETS,
@@ -23,20 +50,41 @@ import {
   getMobileEditorImageScaleLabel,
   getMobileEditorImageWidthPresetLabel,
   getMobileEditorPlaceholder,
-  getMobileEditorTableMenuCopy,
   getMobileEditorToolbarActionLabel,
   getMobileEditorToolbarLabel,
-  isMobileEditorActionDisabledInTableHeader,
-  type MobileEditorTableActionId,
   type MobileEditorToolbarActionId,
 } from "@edgeever/shared/mobile-editor";
+import {
+  type NoteImageTheme,
+  type NoteImageFontStyle,
+  type NoteImageFontSize,
+  type NoteImageCardWidth,
+  NOTE_IMAGE_CARD_WIDTH_PIXELS,
+  NOTE_IMAGE_BACKGROUND_COLORS,
+  NOTE_IMAGE_THEMES,
+  resolveTheme,
+  buildImageExportBasename,
+  buildNoteImageCardMarkup,
+  generateCardCss,
+} from "@edgeever/shared/note-image-card";
 import { useDOMImperativeHandle, type DOMImperativeFactory, type DOMProps } from "expo/dom";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type Ref, type SetStateAction } from "react";
 import {
   createMobileImageUploadPlaceholderSource,
   isMobileImageUploadPlaceholderSource,
   stripMobileImageUploadPlaceholders,
 } from "../lib/mobile-image-upload-placeholder";
+import {
+  getMobileAiSourceRange,
+  resolveMobileAiSelectionTriggerPosition,
+  type MobileAiSelectionTriggerPosition,
+} from "../lib/mobile-ai-selection";
+import {
+  MOBILE_NOTE_SEARCH_HIGHLIGHT_PLUGIN_KEY,
+  createMobileNoteSearchHighlightPlugin,
+  getMobileNoteSearchMatches,
+} from "../lib/mobile-note-search";
+import { toProtectedResourceLoadPath } from "../lib/mobile-protected-resources";
 
 type EditorDoc = TiptapDoc;
 
@@ -47,27 +95,55 @@ export interface LocalTiptapEditorRef extends DOMImperativeFactory {
   cancelImageUpload: (uploadId: DOMValue) => void;
   completeImageUpload: (uploadId: DOMValue, imageUrl: DOMValue, alt: DOMValue) => void;
   appendAttachment: (attachmentUrl: DOMValue, filename: DOMValue) => void;
+  removeResource: (targetJson: DOMValue) => void;
+  renameResource: (targetJson: DOMValue, filename: DOMValue) => void;
+  /** Replace body without remounting the DomWebView (JSON string of TipTap doc). */
+  setContent: (contentJsonSerialized: DOMValue) => void;
   flush: () => void;
   focusEnd: () => void;
   replaceAll: (query: DOMValue, replacement: DOMValue) => void;
   search: (query: DOMValue, index: DOMValue) => void;
+  pushAiStreamEvent: (payloadJson: DOMValue) => void;
+  exportImage: (requestJson: DOMValue) => void;
 }
 
-type LocalTiptapEditorProps = {
-  mode?: "editor";
-  autoFocus?: boolean;
+type LocalTiptapEditorSharedProps = {
   baseUrl: string;
   content: EditorDoc;
   dom?: DOMProps;
-  onChange: (content: EditorDoc) => Promise<void>;
   onLoadResource: (source: string) => Promise<string | null>;
-  onPickImage: () => Promise<void>;
-  onReady: (startupMs: number) => Promise<void>;
-  onSearchResult?: (count: number, index: number) => Promise<void>;
+  onResourcePress?: (targetJson: string) => Promise<void>;
+  onReady?: (startupMs: number) => Promise<void>;
+  onSearchResult?: (count: number, index: number, query: string) => Promise<void>;
+  onImageExportEvent?: (payloadJson: string) => Promise<void>;
   ref: Ref<LocalTiptapEditorRef>;
   locale: "zh-CN" | "en-US";
   theme: "light" | "dark";
 };
+
+/** Editable note body with toolbar (create / rich edit). */
+type LocalTiptapEditorModeProps = LocalTiptapEditorSharedProps & {
+  mode?: "editor";
+  aiPromptsJson?: string;
+  autoFocus?: boolean;
+  onChange: (content: EditorDoc) => Promise<void>;
+  onPickImage: () => Promise<void>;
+  onAiRequest?: (requestJson: string) => Promise<void>;
+  onAiCancel?: (requestId: string) => Promise<void>;
+  onReady: (startupMs: number) => Promise<void>;
+};
+
+/**
+ * Read-only note body that reuses the same TipTap schema / image loading as the
+ * editor. Used by the native memo detail chrome (scheme C).
+ */
+type LocalTiptapViewerModeProps = LocalTiptapEditorSharedProps & {
+  mode: "viewer";
+  /** JSON: `{ alt: string; source: string }` for fullscreen image preview. */
+  onImagePreview?: (payloadJson: string) => Promise<void>;
+};
+
+type LocalTiptapEditorProps = LocalTiptapEditorModeProps | LocalTiptapViewerModeProps;
 
 type MermaidRendererProps = {
   diagramsJson: string;
@@ -80,13 +156,202 @@ type MermaidRendererProps = {
 const CHANGE_IDLE_MS = 500;
 const TRANSIENT_IMAGE_UPLOAD_META = "edgeeverImageUploadPlaceholder";
 const ignoreSearchResult = async () => undefined;
+const ignoreAiRequest = async () => undefined;
+const AI_PROMPT_OPTION_PREFIX = "prompt:";
+const IMAGE_EXPORT_PIXEL_RATIO = 2;
+const IMAGE_EXPORT_CHUNK_SIZE = 256 * 1024;
 
-const getMobileMermaidTheme = (theme: "light" | "dark") => THEMES[theme === "dark" ? "zinc-dark" : "zinc-light"];
+type ImageExportRequest = {
+  requestId: string;
+  format: "jpeg" | "png";
+  title: string;
+  fallbackTitle: string;
+  notebook?: string;
+  tags?: string[];
+  updatedAt?: string;
+  background?: "mint" | "slate" | "warm" | NoteImageTheme;
+  theme?: NoteImageTheme;
+  fontStyle?: NoteImageFontStyle;
+  fontSize?: NoteImageFontSize;
+  cardWidth?: NoteImageCardWidth;
+  showTitle?: boolean;
+  showNotebook?: boolean;
+  showTags?: boolean;
+  showUpdatedAt?: boolean;
+  branding?: boolean;
+};
 
-const renderWithBeautifulMermaid = (source: string, theme: "light" | "dark") => {
+const blobToBytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
+
+const bytesToBase64 = (bytes: Uint8Array) => {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+};
+
+const fallbackPromptParameterKind = (action: AiAction): AiPromptParameterKind =>
+  action === "translate" ? "target-language" : action === "change-tone" ? "tone" : "none";
+
+const fallbackPromptResultMode = (action: AiAction): AiPromptResultMode =>
+  canReplaceAiSource(action) ? "both" : "append";
+
+type MobileAiSelection = {
+  from: number;
+  to: number;
+  wholeNote: boolean;
+  isInline: boolean;
+  markdown: string;
+  documentFingerprint: string;
+};
+
+type MobileAiPanelState = {
+  selection: MobileAiSelection;
+  action: AiAction;
+  promptId: string | null;
+  parameterKind: AiPromptParameterKind;
+  resultMode: AiPromptResultMode;
+  targetLanguage: AiTargetLanguage;
+  tone: AiTone;
+  customInstruction: string;
+  refineInstruction: string;
+  output: string;
+  error: string | null;
+  generating: boolean;
+  requestId: string | null;
+};
+
+type MobileAiBridgePayload = {
+  requestId: string;
+  event: AiStreamEvent;
+};
+
+type MobileAiPickerKind = "action" | "language" | "tone";
+
+type MobileAiPickerOption = {
+  active: boolean;
+  label: string;
+  value: string;
+};
+
+type EditorResourceTarget = {
+  filename: string;
+  href: string;
+  kind: "attachment" | "image";
+  resourceId: string;
+};
+
+const parseMobileResourceTarget = (value: string): EditorResourceTarget | null => {
   try {
+    const parsed = JSON.parse(value) as Partial<EditorResourceTarget>;
+    if (typeof parsed.href !== "string" || typeof parsed.filename !== "string") return null;
+    if (parsed.kind !== "attachment" && parsed.kind !== "image") return null;
+    const resourceId = getResourceIdFromUrl(parsed.href);
+    if (!resourceId || (parsed.resourceId && parsed.resourceId !== resourceId)) return null;
+    return { filename: parsed.filename, href: parsed.href, kind: parsed.kind, resourceId };
+  } catch {
+    return null;
+  }
+};
+
+const normalizeEditorAttachmentFilename = (label: string, resourceId: string) =>
+  label.replace(/^\s*(?:附件[：:]|Attachment:)\s*/i, "").trim() || resourceId;
+
+/** Accept both `/api/v1/resources/:id/blob` and bare `/api/v1/resources/:id` image srcs. */
+const getMobileImageResourceId = (href: string): string | null => {
+  const fromBlob = getResourceIdFromUrl(href);
+  if (fromBlob) return fromBlob;
+  try {
+    const parsed = new URL(href, "http://edgeever.local");
+    const match = parsed.pathname.match(/^\/api\/v1\/resources\/([^/]+)\/?$/);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeMobileResourceHref = (href: string, resourceId: string) => {
+  if (getResourceIdFromUrl(href)) return href;
+  if (href.startsWith("/api/v1/resources/")) {
+    return `/api/v1/resources/${encodeURIComponent(resourceId)}/blob`;
+  }
+  return href;
+};
+
+const buildImageResourceTargetJson = (figure: HTMLElement): string | null => {
+  const href = figure.dataset.resourceHref ?? "";
+  const resourceId = getMobileImageResourceId(href);
+  if (!resourceId) return null;
+  return JSON.stringify({
+    filename: figure.dataset.resourceFilename || `image-${resourceId}`,
+    href: normalizeMobileResourceHref(href, resourceId),
+    kind: "image",
+    resourceId,
+  } satisfies EditorResourceTarget);
+};
+
+const handleMobileResourceEvent = (
+  event: Event,
+  onResourcePress?: (targetJson: string) => Promise<void>,
+  options?: { allowImagePreview?: boolean; onImagePreview?: (payloadJson: string) => Promise<void> }
+) => {
+  const element = event.target instanceof Element ? event.target : null;
+  const link = element?.closest<HTMLAnchorElement>('a.edgeever-attachment-link, a[href*="/api/v1/resources/"]');
+  const href = link?.getAttribute("href") ?? "";
+  const resourceId = getResourceIdFromUrl(href) ?? getMobileImageResourceId(href);
+  if (link && resourceId && onResourcePress) {
+    event.preventDefault();
+    event.stopPropagation();
+    void onResourcePress(JSON.stringify({
+      filename: normalizeEditorAttachmentFilename(link.textContent ?? "", resourceId),
+      href: normalizeMobileResourceHref(href, resourceId),
+      kind: "attachment",
+      resourceId,
+    } satisfies EditorResourceTarget));
+    return true;
+  }
+
+  const imageFigure = element?.closest<HTMLElement>("figure.edgeever-image-node");
+  const imageHref = imageFigure?.dataset.resourceHref ?? "";
+  if (!imageFigure || !imageHref) return false;
+
+  const imageActionRequested = event.type === "contextmenu" || Boolean(element?.closest(".edgeever-image-actions"));
+  if (imageActionRequested && onResourcePress) {
+    const targetJson = buildImageResourceTargetJson(imageFigure);
+    if (!targetJson) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    void onResourcePress(targetJson);
+    return true;
+  }
+
+  // Viewer: plain image tap opens native fullscreen preview.
+  if (options?.allowImagePreview && options.onImagePreview && !imageActionRequested) {
+    event.preventDefault();
+    event.stopPropagation();
+    void options.onImagePreview(JSON.stringify({
+      alt: imageFigure.dataset.resourceFilename || "",
+      source: imageHref,
+    }));
+    return true;
+  }
+
+  return false;
+};
+
+let beautifulMermaidRuntime: Promise<typeof import("beautiful-mermaid")> | null = null;
+
+const loadBeautifulMermaid = () => {
+  beautifulMermaidRuntime ??= import("beautiful-mermaid");
+  return beautifulMermaidRuntime;
+};
+
+const renderWithBeautifulMermaid = async (source: string, theme: "light" | "dark") => {
+  try {
+    const { renderMermaidSVG, THEMES } = await loadBeautifulMermaid();
     return renderMermaidSVG(source, {
-      ...getMobileMermaidTheme(theme),
+      ...THEMES[theme === "dark" ? "zinc-dark" : "zinc-light"],
       transparent: true,
       font: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
       padding: 24,
@@ -130,7 +395,7 @@ const MermaidRenderRuntime = (props: MermaidRendererProps) => {
       const results: Array<{ source: string; svg: string | null }> = [];
       for (const source of sources) {
         try {
-          const beautifulSvg = renderWithBeautifulMermaid(source, props.theme);
+          const beautifulSvg = await renderWithBeautifulMermaid(source, props.theme);
           if (beautifulSvg) {
             results.push({ source, svg: inlineMermaidSvgStyles(beautifulSvg) });
             continue;
@@ -231,50 +496,225 @@ const inlineMermaidSvgStyles = (svg: string) => {
   return serialized;
 };
 
+const getEditorScrollContainer = (editor: Editor) =>
+  editor.view.dom.closest<HTMLElement>(".edgeever-editor-scroll");
+
+const updateEditorKeyboardInset = (editor: Editor) => {
+  const scrollContainer = getEditorScrollContainer(editor);
+  if (!scrollContainer) {
+    return;
+  }
+  const visualViewport = window.visualViewport;
+  const visibleBottom = visualViewport
+    ? visualViewport.offsetTop + visualViewport.height
+    : window.innerHeight;
+  const keyboardInset = Math.max(0, window.innerHeight - visibleBottom);
+  scrollContainer.style.setProperty("--edgeever-keyboard-inset", `${Math.round(keyboardInset)}px`);
+};
+
+const scrollEditorPositionIntoView = (
+  editor: Editor,
+  position: number,
+  options: { behavior?: ScrollBehavior; center?: boolean } = {}
+) => {
+  const scrollContainer = getEditorScrollContainer(editor);
+  if (!scrollContainer) {
+    return;
+  }
+  try {
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const positionRect = editor.view.coordsAtPos(position);
+    const visualViewport = window.visualViewport;
+    const visibleTop = Math.max(containerRect.top, visualViewport?.offsetTop ?? containerRect.top);
+    const visibleBottom = Math.min(
+      containerRect.bottom,
+      visualViewport ? visualViewport.offsetTop + visualViewport.height : containerRect.bottom
+    );
+    const padding = 24;
+    const isAbove = positionRect.top < visibleTop + padding;
+    const isBelow = positionRect.bottom > visibleBottom - padding;
+    if (!isAbove && !isBelow) {
+      return;
+    }
+    const targetTop = options.center
+      ? scrollContainer.scrollTop + positionRect.top - visibleTop
+        - (visibleBottom - visibleTop - Math.max(positionRect.bottom - positionRect.top, 1)) / 2
+      : scrollContainer.scrollTop + (isAbove
+        ? positionRect.top - visibleTop - padding
+        : positionRect.bottom - visibleBottom + padding);
+    scrollContainer.scrollTo({
+      behavior: options.behavior ?? "auto",
+      top: Math.max(0, targetTop),
+    });
+  } catch {
+    // The selection can disappear while content is being replaced. The next
+    // selection/viewport update will retry with a valid document position.
+  }
+};
+
 function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
-  const [tableMenuOpen, setTableMenuOpen] = useState(false);
+  const isViewer = props.mode === "viewer";
+  const autoFocus = props.mode === "viewer" ? false : Boolean(props.autoFocus);
+  const aiPromptsJson = props.mode === "viewer" ? "[]" : (props.aiPromptsJson ?? "[]");
+  const aiPrompts = useMemo(() => {
+    try {
+      const parsed = JSON.parse(aiPromptsJson) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((prompt): prompt is AiPromptTemplate =>
+        Boolean(prompt)
+        && typeof prompt === "object"
+        && typeof (prompt as Partial<AiPromptTemplate>).id === "string"
+        && typeof (prompt as Partial<AiPromptTemplate>).name === "string"
+        && typeof (prompt as Partial<AiPromptTemplate>).action === "string");
+    } catch {
+      return [];
+    }
+  }, [aiPromptsJson]);
   const startedAtRef = useRef(performance.now());
   const changeTimerRef = useRef<number | null>(null);
   const imageUploadInFlightRef = useRef(false);
   const pendingImageSelectionRef = useRef<{ from: number; to: number } | null>(null);
-  const onChangeRef = useRef(props.onChange);
+  const onChangeRef = useRef(props.mode === "viewer" ? undefined : props.onChange);
   const onLoadResourceRef = useRef(props.onLoadResource);
-  const onPickImageRef = useRef(props.onPickImage);
-  const onReadyRef = useRef(props.onReady);
+  const onResourcePressRef = useRef(props.onResourcePress);
+  const onImagePreviewRef = useRef(props.mode === "viewer" ? props.onImagePreview : undefined);
+  const onPickImageRef = useRef(props.mode === "viewer" ? undefined : props.onPickImage);
+  const onAiRequestRef = useRef(props.mode === "viewer" ? undefined : props.onAiRequest);
+  const onAiCancelRef = useRef(props.mode === "viewer" ? undefined : props.onAiCancel);
+  const onReadyRef = useRef(props.onReady ?? (async () => undefined));
   const onSearchResultRef = useRef(props.onSearchResult ?? ignoreSearchResult);
+  const onImageExportEventRef = useRef(props.onImageExportEvent);
+  const searchStateRef = useRef({ activeIndex: -1, query: "" });
+  const [aiPanel, setAiPanel] = useState<MobileAiPanelState | null>(null);
+  const [aiSelectionTrigger, setAiSelectionTrigger] = useState<MobileAiSelectionTriggerPosition | null>(null);
+  const [aiSelectionHint, setAiSelectionHint] = useState(false);
+  const aiSelectionHintTimerRef = useRef<number | null>(null);
+  const [aiUndoFingerprint, setAiUndoFingerprint] = useState<string | null>(null);
+  const aiUndoTimerRef = useRef<number | null>(null);
 
-  onChangeRef.current = props.onChange;
+  useEffect(() => {
+    setAiPanel((current) => {
+      if (!current) return current;
+      if (current.promptId) {
+        const selected = aiPrompts.find((prompt) => prompt.id === current.promptId);
+        if (!selected) {
+          return {
+            ...current,
+            action: "custom",
+            promptId: null,
+            parameterKind: "none",
+            resultMode: "both",
+            output: "",
+            error: props.locale === "en-US"
+              ? "The selected prompt no longer exists. Choose another prompt."
+              : "所选指令已不存在，请重新选择。",
+          };
+        }
+        return {
+          ...current,
+          action: selected.action,
+          parameterKind: selected.parameterKind,
+          resultMode: selected.resultMode,
+        };
+      }
+      if (current.action === "custom" || aiPrompts.length === 0) return current;
+      const preferred = aiPrompts.find((prompt) => prompt.seedKey === current.action)
+        ?? aiPrompts[0];
+      return preferred ? {
+        ...current,
+        action: preferred.action,
+        promptId: preferred.id,
+        parameterKind: preferred.parameterKind,
+        resultMode: preferred.resultMode,
+      } : current;
+    });
+  }, [aiPrompts, props.locale]);
+
+  onChangeRef.current = props.mode === "viewer" ? undefined : props.onChange;
   onLoadResourceRef.current = props.onLoadResource;
-  onPickImageRef.current = props.onPickImage;
-  onReadyRef.current = props.onReady;
+  onResourcePressRef.current = props.onResourcePress;
+  onImagePreviewRef.current = props.mode === "viewer" ? props.onImagePreview : undefined;
+  onPickImageRef.current = props.mode === "viewer" ? undefined : props.onPickImage;
+  onAiRequestRef.current = props.mode === "viewer" ? undefined : props.onAiRequest;
+  onAiCancelRef.current = props.mode === "viewer" ? undefined : props.onAiCancel;
+  onReadyRef.current = props.onReady ?? (async () => undefined);
   onSearchResultRef.current = props.onSearchResult ?? ignoreSearchResult;
+  onImageExportEventRef.current = props.onImageExportEvent;
   const protectedImageExtension = useMemo(
-    () => createProtectedImageExtension(props.baseUrl, props.locale, (source) => onLoadResourceRef.current(source)),
-    [props.baseUrl, props.locale]
+    () => createProtectedImageExtension(
+      props.baseUrl,
+      props.locale,
+      (source) => onLoadResourceRef.current(source),
+      {
+        readOnly: isViewer,
+        // NodeView binds ⋯ / image taps directly — Android WebView often drops
+        // click after pointerdown preventDefault, so PM handleClick is not enough.
+        onResourcePress: (targetJson) => onResourcePressRef.current?.(targetJson),
+        onImagePreview: (payloadJson) => onImagePreviewRef.current?.(payloadJson),
+      }
+    ),
+    [isViewer, props.baseUrl, props.locale]
   );
   const mermaidCodeBlockExtension = useMemo(
     () => createMobileCodeBlockExtension(props.locale, props.theme),
     [props.locale, props.theme]
   );
+  const searchHighlightExtension = useMemo(
+    () => Extension.create({
+      name: "edgeeverMobileNoteSearchHighlight",
+      addProseMirrorPlugins() {
+        return [createMobileNoteSearchHighlightPlugin({
+          getActiveIndex: () => searchStateRef.current.activeIndex,
+          getQuery: () => searchStateRef.current.query,
+        })];
+      },
+    }),
+    []
+  );
 
   const editor = useEditor({
-    autofocus: props.autoFocus ? "end" : false,
+    editable: !isViewer,
+    // Focus only after the DOM view reports ready. Initial TipTap autofocus plus
+    // the Android bridge retry raced each other and could leave the WebView stuck.
+    autofocus: false,
     extensions: [
-      StarterKit.configure({ codeBlock: false }),
+      StarterKit.configure({ codeBlock: false, link: { openOnClick: false } }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      MergeDivider,
+      ...createEdgeEverMathematics(),
       mermaidCodeBlockExtension,
       protectedImageExtension,
+      searchHighlightExtension,
       TableKit.configure({
         table: { renderWrapper: true },
       }),
-      Placeholder.configure({
-        placeholder: getMobileEditorPlaceholder(props.locale),
-      }),
+      ...(isViewer
+        ? []
+        : [Placeholder.configure({
+            placeholder: getMobileEditorPlaceholder(props.locale),
+          })]),
     ],
     content: resolveImageSources(props.content, props.baseUrl),
     editorProps: {
-      attributes: getMobileEditorInputAttributes("edgeever-editor-content"),
+      attributes: getMobileEditorInputAttributes(
+        isViewer ? "edgeever-editor-content edgeever-viewer-content" : "edgeever-editor-content"
+      ),
+      handleClick: (_view, _pos, event) => handleMobileResourceEvent(event, onResourcePressRef.current, {
+        allowImagePreview: isViewer,
+        onImagePreview: onImagePreviewRef.current,
+      }),
+      handleDOMEvents: {
+        contextmenu: (_view, event) => handleMobileResourceEvent(event, onResourcePressRef.current, {
+          allowImagePreview: false,
+          onImagePreview: onImagePreviewRef.current,
+        }),
+      },
     },
     onUpdate: ({ editor: activeEditor, transaction }) => {
+      if (isViewer || !onChangeRef.current) {
+        return;
+      }
       if (transaction.getMeta(TRANSIENT_IMAGE_UPLOAD_META)) {
         return;
       }
@@ -283,13 +723,13 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       }
       changeTimerRef.current = window.setTimeout(() => {
         changeTimerRef.current = null;
-        void onChangeRef.current(getPersistableEditorDoc(activeEditor.getJSON() as EditorDoc, props.baseUrl));
+        void onChangeRef.current?.(getPersistableEditorDoc(activeEditor.getJSON() as EditorDoc, props.baseUrl));
       }, CHANGE_IDLE_MS);
     },
   });
 
   const flush = useCallback(() => {
-    if (!editor || editor.isDestroyed) {
+    if (isViewer || !editor || editor.isDestroyed || !onChangeRef.current) {
       return;
     }
     if (changeTimerRef.current !== null) {
@@ -297,27 +737,63 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       changeTimerRef.current = null;
     }
     void onChangeRef.current(getPersistableEditorDoc(editor.getJSON() as EditorDoc, props.baseUrl));
+  }, [editor, isViewer, props.baseUrl]);
+
+  const setContent = useCallback((contentJsonSerialized: DOMValue) => {
+    if (!editor || editor.isDestroyed || typeof contentJsonSerialized !== "string") {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(contentJsonSerialized) as EditorDoc;
+      const next = resolveImageSources(parsed, props.baseUrl);
+      // Do not focus while replacing content. Callers decide when the editor should
+      // take focus and place the caret via focusEnd().
+      // This command synchronizes native-owned state (draft restore/template/new
+      // composer reset). Callers already own persistence for that state, so an
+      // emitted update would create a delayed stale write during screen teardown.
+      editor.commands.setContent(next, { emitUpdate: false });
+    } catch {
+      // Ignore malformed payloads from the native bridge.
+    }
   }, [editor, props.baseUrl]);
 
   const search = useCallback((query: DOMValue, requestedIndex: DOMValue) => {
-    const matches = getEditorSearchMatches(editor, typeof query === "string" ? query : "");
+    const normalizedQuery = typeof query === "string" ? query : "";
+    const matches = editor && !editor.isDestroyed
+      ? getMobileNoteSearchMatches(editor.state.doc, normalizedQuery)
+      : [];
     const requestedMatchIndex = typeof requestedIndex === "number" ? requestedIndex : 0;
     const index = matches.length > 0
-      ? Math.min(Math.max(requestedMatchIndex, 0), matches.length - 1)
+      ? requestedMatchIndex < 0
+        ? -1
+        : Math.min(Math.max(requestedMatchIndex, 0), matches.length - 1)
       : 0;
-    const match = matches[index];
-    if (editor && !editor.isDestroyed && match) {
-      editor.commands.setTextSelection({ from: match.from, to: match.to });
+    searchStateRef.current = {
+      activeIndex: matches.length > 0 ? index : -1,
+      query: normalizedQuery,
+    };
+    const match = index >= 0 ? matches[index] : undefined;
+    if (editor && !editor.isDestroyed) {
+      if (match) {
+        editor.chain().setTextSelection({ from: match.from, to: match.to }).scrollIntoView().run();
+        window.requestAnimationFrame(() => {
+          scrollEditorPositionIntoView(editor, match.from, { behavior: "smooth", center: true });
+        });
+      } else {
+        editor.view.dispatch(editor.state.tr.setMeta(MOBILE_NOTE_SEARCH_HIGHLIGHT_PLUGIN_KEY, true));
+      }
     }
-    void onSearchResultRef.current(matches.length, index);
+    void onSearchResultRef.current(matches.length, index, normalizedQuery);
   }, [editor]);
 
   const replaceAll = useCallback((query: DOMValue, replacement: DOMValue) => {
     const normalizedQuery = typeof query === "string" ? query : "";
     const normalizedReplacement = typeof replacement === "string" ? replacement : "";
-    const matches = getEditorSearchMatches(editor, normalizedQuery);
+    const matches = editor && !editor.isDestroyed
+      ? getMobileNoteSearchMatches(editor.state.doc, normalizedQuery)
+      : [];
     if (!editor || editor.isDestroyed || matches.length === 0) {
-      void onSearchResultRef.current(0, 0);
+      void onSearchResultRef.current(0, 0, normalizedQuery);
       return;
     }
     editor
@@ -335,7 +811,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
   }, [editor, search]);
 
   const beginImageUpload = useCallback((uploadIdValue: DOMValue, previewDataUrlValue: DOMValue) => {
-    if (!editor || typeof uploadIdValue !== "string" || typeof previewDataUrlValue !== "string") {
+    if (isViewer || !editor || typeof uploadIdValue !== "string" || typeof previewDataUrlValue !== "string") {
       return;
     }
     insertImageUploadPlaceholder(
@@ -345,7 +821,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       previewDataUrlValue,
       pendingImageSelectionRef.current
     );
-  }, [editor, props.locale]);
+  }, [editor, isViewer, props.locale]);
 
   const cancelImageUpload = useCallback((uploadIdValue: DOMValue) => {
     if (!editor || typeof uploadIdValue !== "string") {
@@ -375,7 +851,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       type: "paragraph",
       content: [{
         type: "text",
-        text: `附件：${filenameValue}`,
+        text: `${props.locale === "en-US" ? "Attachment: " : "附件："}${filenameValue}`,
         marks: [{
           type: "link",
           attrs: {
@@ -386,7 +862,350 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
         }],
       }],
     }).run();
-  }, [editor, props.baseUrl]);
+  }, [editor, props.baseUrl, props.locale]);
+
+  const renameResource = useCallback((targetJsonValue: DOMValue, filenameValue: DOMValue) => {
+    if (!editor || typeof targetJsonValue !== "string" || typeof filenameValue !== "string") return;
+    const target = parseMobileResourceTarget(targetJsonValue);
+    if (!target) return;
+    if (target.kind === "image") {
+      const match = findMobileImageRange(editor, target.resourceId);
+      if (!match) return;
+      const imageNode = editor.state.doc.nodeAt(match.pos);
+      if (!imageNode) return;
+      editor.view.dispatch(editor.state.tr.setNodeMarkup(match.pos, imageNode.type, {
+        ...imageNode.attrs,
+        alt: filenameValue,
+        title: filenameValue,
+      }));
+      return;
+    }
+    const range = findMobileAttachmentRange(editor, target.resourceId);
+    if (!range) return;
+    const linkMark = editor.schema.marks.link?.create(range.linkAttrs);
+    if (!linkMark) return;
+    editor.view.dispatch(editor.state.tr.replaceWith(
+      range.from,
+      range.to,
+      editor.schema.text(`${props.locale === "en-US" ? "Attachment: " : "附件："}${filenameValue}`, [linkMark])
+    ));
+  }, [editor, props.locale]);
+
+  const removeResource = useCallback((targetJsonValue: DOMValue) => {
+    if (!editor || typeof targetJsonValue !== "string") return;
+    const target = parseMobileResourceTarget(targetJsonValue);
+    if (!target) return;
+    if (target.kind === "image") {
+      const match = findMobileImageRange(editor, target.resourceId);
+      if (match) editor.view.dispatch(editor.state.tr.delete(match.pos, match.pos + match.nodeSize));
+      return;
+    }
+    const range = findMobileAttachmentRange(editor, target.resourceId);
+    if (!range) return;
+    const resolved = editor.state.doc.resolve(range.from);
+    let from = range.from;
+    let to = range.to;
+    for (let depth = resolved.depth; depth > 0; depth -= 1) {
+      const node = resolved.node(depth);
+      if (node.type.name !== "paragraph") continue;
+      const nodeFrom = resolved.before(depth);
+      if (range.from === nodeFrom + 1 && range.to === nodeFrom + node.nodeSize - 1) {
+        from = nodeFrom;
+        to = nodeFrom + node.nodeSize;
+      }
+      break;
+    }
+    editor.view.dispatch(editor.state.tr.delete(from, to));
+  }, [editor]);
+
+  const openAiForSelection = useCallback(() => {
+    if (isViewer || !editor || editor.isDestroyed || !onAiRequestRef.current) return false;
+    const sourceRange = getMobileAiSourceRange(editor.state.selection, editor.state.doc.content.size);
+    if (!sourceRange) return false;
+    const { from: sourceFrom, to: sourceTo, wholeNote } = sourceRange;
+    const richSelection = wholeNote
+      ? null
+      : getRichTextAiSelectionContext(editor.state.doc, editor.state.selection);
+    if (!wholeNote && !richSelection) return false;
+    const from = richSelection?.from ?? sourceFrom;
+    const to = richSelection?.to ?? sourceTo;
+    const markdown = richSelection?.contentMarkdown ?? docToMarkdown(getPersistableEditorDoc({
+      type: "doc",
+      content: editor.state.doc.slice(from, to).content.toJSON(),
+    } as EditorDoc, props.baseUrl)).trim();
+    if (!markdown) return false;
+    const preferredAction = wholeNote ? "summarize" : "improve-writing";
+    const preferredPrompt = aiPrompts.find((prompt) => prompt.seedKey === preferredAction)
+      ?? aiPrompts[0]
+      ?? null;
+    const initialAction = preferredPrompt?.action ?? preferredAction;
+    setAiPanel({
+      selection: {
+        from,
+        to,
+        wholeNote,
+        isInline: richSelection?.isInline ?? false,
+        markdown,
+        documentFingerprint: getAiDocumentFingerprint(getPersistableEditorDoc(editor.getJSON() as EditorDoc, props.baseUrl)),
+      },
+      action: initialAction,
+      promptId: preferredPrompt?.id ?? null,
+      parameterKind: preferredPrompt?.parameterKind ?? fallbackPromptParameterKind(initialAction),
+      resultMode: preferredPrompt?.resultMode ?? fallbackPromptResultMode(initialAction),
+      targetLanguage: getDefaultAiTargetLanguage(props.locale),
+      tone: "professional",
+      customInstruction: "",
+      refineInstruction: "",
+      output: "",
+      error: null,
+      generating: false,
+      requestId: null,
+    });
+    editor.commands.blur();
+    return true;
+  }, [aiPrompts, editor, isViewer, props.baseUrl, props.locale]);
+
+  const closeAiPanel = useCallback(() => {
+    if (!aiPanel || !editor) return;
+    if (aiPanel.requestId) void (onAiCancelRef.current ?? ignoreAiRequest)(aiPanel.requestId);
+    const { from, to } = aiPanel.selection;
+    setAiPanel(null);
+    window.requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      if (aiPanel.selection.wholeNote) {
+        editor.chain().focus().selectAll().run();
+      } else {
+        editor.chain().focus().setTextSelection({ from, to }).run();
+      }
+    });
+  }, [aiPanel, editor]);
+
+  const runAiSelectionRequest = useCallback((refinement?: string) => {
+    if (!aiPanel || !onAiRequestRef.current) return;
+    const instruction = refinement?.trim();
+    const requestId = globalThis.crypto?.randomUUID?.() ?? `ai-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const source = instruction ? aiPanel.output : aiPanel.selection.markdown;
+    const action = instruction ? "custom" : aiPanel.action;
+    const promptId = instruction ? null : aiPanel.promptId;
+    setAiPanel((current) => current ? {
+      ...current,
+      output: "",
+      error: null,
+      generating: true,
+      requestId,
+      refineInstruction: instruction ? "" : current.refineInstruction,
+    } : current);
+    void onAiRequestRef.current(JSON.stringify({
+      requestId,
+      action,
+      locale: props.locale,
+      ...(promptId ? { promptId } : {}),
+      contentMarkdown: source,
+      ...(aiPanel.parameterKind === "target-language" && !instruction ? { targetLanguage: aiPanel.targetLanguage } : {}),
+      ...(aiPanel.parameterKind === "tone" && !instruction ? { tone: aiPanel.tone } : {}),
+      ...(!promptId && action === "custom" ? { instruction: instruction ?? aiPanel.customInstruction.trim() } : {}),
+    })).catch((requestError) => {
+      setAiPanel((current) => current?.requestId === requestId ? {
+        ...current,
+        generating: false,
+        requestId: null,
+        error: requestError instanceof Error ? requestError.message : (props.locale === "en-US" ? "AI generation failed." : "AI 生成失败。"),
+      } : current);
+    });
+  }, [aiPanel, props.locale]);
+
+  const pushAiStreamEvent = useCallback((payloadJsonValue: DOMValue) => {
+    if (typeof payloadJsonValue !== "string") return;
+    try {
+      const payload = JSON.parse(payloadJsonValue) as MobileAiBridgePayload;
+      if (!payload.requestId || !payload.event) return;
+      setAiPanel((current) => {
+        if (!current || current.requestId !== payload.requestId) return current;
+        if (payload.event.type === "text-delta") {
+          return { ...current, output: current.output + payload.event.text };
+        }
+        if (payload.event.type === "error") {
+          return { ...current, generating: false, requestId: null, error: payload.event.message };
+        }
+        if (payload.event.type === "finish") {
+          return { ...current, generating: false, requestId: null };
+        }
+        return current;
+      });
+    } catch {
+      // Ignore malformed native bridge payloads.
+    }
+  }, []);
+
+  const stopAiSelectionRequest = useCallback(() => {
+    if (!aiPanel?.requestId) return;
+    void (onAiCancelRef.current ?? ignoreAiRequest)(aiPanel.requestId);
+    setAiPanel((current) => current ? { ...current, generating: false, requestId: null } : current);
+  }, [aiPanel?.requestId]);
+
+  const applyAiSelectionDraft = useCallback((mode: "append" | "replace") => {
+    if (!aiPanel?.output || !editor || editor.isDestroyed) return;
+    const currentDocument = getPersistableEditorDoc(editor.getJSON() as EditorDoc, props.baseUrl);
+    if (!isAiSelectionSnapshotCurrent(aiPanel.selection, currentDocument, editor.state.doc.content.size)) {
+      setAiPanel((current) => current ? {
+        ...current,
+        error: props.locale === "en-US"
+          ? "The selection expired because the note changed. Select the text again."
+          : "笔记内容已变化，选区已失效，请重新选择文本。",
+      } : current);
+      return;
+    }
+    if (mode === "append" && aiPanel.resultMode === "replace") return;
+    if (mode === "replace" && aiPanel.resultMode === "append") return;
+    const replacementDraft = mode === "replace"
+      ? normalizeAiSelectionReplacement(aiPanel.output)
+      : aiPanel.output;
+    if (!replacementDraft) return;
+    const replacementDoc = mode === "replace"
+      ? { type: "doc", content: getRichTextAiSelectionReplacement(replacementDraft, aiPanel.selection.isInline) } as EditorDoc
+      : markdownToDoc(replacementDraft);
+    const parsed = resolveImageSources(replacementDoc, props.baseUrl);
+    const content = parsed.content ?? [];
+    const range = mode === "append"
+      ? { from: aiPanel.selection.to, to: aiPanel.selection.to }
+      : { from: aiPanel.selection.from, to: aiPanel.selection.to };
+    editor.chain().focus().insertContentAt(range, content).run();
+    setAiUndoFingerprint(getAiDocumentFingerprint(getPersistableEditorDoc(editor.getJSON() as EditorDoc, props.baseUrl)));
+    if (aiUndoTimerRef.current !== null) window.clearTimeout(aiUndoTimerRef.current);
+    aiUndoTimerRef.current = window.setTimeout(() => {
+      aiUndoTimerRef.current = null;
+      setAiUndoFingerprint(null);
+    }, 6500);
+    setAiPanel(null);
+  }, [aiPanel, editor, props.baseUrl, props.locale]);
+
+  const undoAiSelectionDraft = useCallback(() => {
+    if (!aiUndoFingerprint || !editor || editor.isDestroyed) return;
+    const currentFingerprint = getAiDocumentFingerprint(getPersistableEditorDoc(editor.getJSON() as EditorDoc, props.baseUrl));
+    if (currentFingerprint === aiUndoFingerprint) editor.chain().focus().undo().run();
+    setAiUndoFingerprint(null);
+    if (aiUndoTimerRef.current !== null) {
+      window.clearTimeout(aiUndoTimerRef.current);
+      aiUndoTimerRef.current = null;
+    }
+  }, [aiUndoFingerprint, editor, props.baseUrl]);
+
+  const exportImage = useCallback((requestJsonValue: DOMValue) => {
+    if (typeof requestJsonValue !== "string" || !editor || editor.isDestroyed || !onImageExportEventRef.current) return;
+
+    void (async () => {
+      let request: ImageExportRequest;
+      try {
+        request = JSON.parse(requestJsonValue) as ImageExportRequest;
+        if (!request.requestId || (request.format !== "png" && request.format !== "jpeg")) return;
+      } catch {
+        return;
+      }
+
+      const notify = (payload: Record<string, unknown>) =>
+        onImageExportEventRef.current?.(JSON.stringify({ requestId: request.requestId, ...payload }));
+
+      const resolvedTheme = resolveTheme(request.background, request.theme);
+      const fontStyle = request.fontStyle ?? "serif";
+      const fontSize = request.fontSize ?? "lg";
+      const cardWidth = request.cardWidth ?? "standard";
+      const targetWidth = NOTE_IMAGE_CARD_WIDTH_PIXELS[cardWidth] || 680;
+      const themeCfg = NOTE_IMAGE_THEMES[resolvedTheme] || NOTE_IMAGE_THEMES.slate;
+
+      const editorClone = editor.view.dom.cloneNode(true) as HTMLElement;
+      editorClone.removeAttribute("contenteditable");
+      editorClone.querySelectorAll("button, [contenteditable='true']").forEach((element) => {
+        element.removeAttribute("contenteditable");
+        if (element instanceof HTMLButtonElement) element.remove();
+      });
+
+      const bodyHtml = editorClone.innerHTML;
+
+      const host = document.createElement("div");
+      host.style.cssText = `position:fixed;left:-100000px;top:0;width:${targetWidth}px;pointer-events:none;`;
+      const style = document.createElement("style");
+      style.textContent = generateCardCss({ theme: resolvedTheme, fontStyle, fontSize, cardWidth });
+
+      const cardMarkup = buildNoteImageCardMarkup({
+        title: request.title || request.fallbackTitle,
+        notebook: request.notebook,
+        tags: request.tags,
+        updatedAt: request.updatedAt,
+        bodyHtml,
+        theme: resolvedTheme,
+        fontStyle,
+        showTitle: request.showTitle ?? true,
+        showNotebook: request.showNotebook ?? false,
+        showTags: request.showTags ?? false,
+        showUpdatedAt: request.showUpdatedAt ?? true,
+        showBranding: request.branding ?? true,
+      });
+
+      host.appendChild(style);
+      host.insertAdjacentHTML("beforeend", cardMarkup);
+      const documentRoot = host.lastElementChild as HTMLElement;
+      documentRoot.style.width = `${targetWidth}px`;
+      documentRoot.style.maxWidth = "none";
+      documentRoot.style.margin = "0";
+
+      document.body.appendChild(host);
+
+      try {
+        await document.fonts?.ready;
+        await Promise.all(Array.from(documentRoot.querySelectorAll("img")).map(async (image) => {
+          if (image.complete) return;
+          try { await image.decode(); } catch { /* Export the readable remainder. */ }
+        }));
+        const exportedImages = Array.from(
+          documentRoot.querySelectorAll<HTMLImageElement>(".edgeever-card-body img"),
+        );
+        const failedImages = exportedImages.filter((image) => !image.complete || image.naturalWidth === 0).length;
+        const totalHeight = Math.max(1, Math.ceil(documentRoot.getBoundingClientRect().height));
+        const backgroundColor = NOTE_IMAGE_BACKGROUND_COLORS[resolvedTheme] || themeCfg.canvasBg;
+
+        const { toCanvas } = await import("html-to-image");
+        const canvas = await toCanvas(documentRoot, {
+          backgroundColor,
+          cacheBust: false,
+          height: totalHeight,
+          pixelRatio: IMAGE_EXPORT_PIXEL_RATIO,
+          skipFonts: true,
+          width: targetWidth,
+        });
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (result) => result ? resolve(result) : reject(new Error("Image renderer returned an empty file")),
+            request.format === "jpeg" ? "image/jpeg" : "image/png",
+            request.format === "jpeg" ? 0.92 : 1,
+          );
+        });
+
+        const extension = request.format === "jpeg" ? "jpg" : "png";
+        const basename = buildImageExportBasename(request.title, request.fallbackTitle);
+        const bytes = await blobToBytes(blob);
+        const filename = `${basename}.${extension}`;
+        const mimeType = request.format === "jpeg" ? "image/jpeg" : "image/png";
+
+        const base64 = bytesToBase64(bytes);
+        for (let offset = 0; offset < base64.length; offset += IMAGE_EXPORT_CHUNK_SIZE) {
+          await notify({ type: "chunk", chunk: base64.slice(offset, offset + IMAGE_EXPORT_CHUNK_SIZE) });
+        }
+        await notify({
+          type: "complete",
+          filename,
+          mimeType,
+          width: canvas.width,
+          height: canvas.height,
+          totalImages: exportedImages.length,
+          failedImages,
+        });
+      } catch (error) {
+        await notify({ type: "error", message: error instanceof Error ? error.message : "Image export failed" });
+      } finally {
+        host.remove();
+      }
+    })();
+  }, [editor]);
 
   useDOMImperativeHandle(
     props.ref,
@@ -395,12 +1214,24 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
       cancelImageUpload,
       completeImageUpload,
       appendAttachment,
+      setContent,
       flush,
-      focusEnd: () => editor?.commands.focus("end"),
+      focusEnd: () => {
+        if (!isViewer && editor && !editor.isDestroyed) {
+          editor.commands.focus("end");
+          window.requestAnimationFrame(() => {
+            scrollEditorPositionIntoView(editor, editor.state.selection.head);
+          });
+        }
+      },
+      removeResource,
+      renameResource,
       replaceAll,
       search,
+      pushAiStreamEvent,
+      exportImage,
     }),
-    [appendAttachment, beginImageUpload, cancelImageUpload, completeImageUpload, editor, flush, replaceAll, search]
+    [appendAttachment, beginImageUpload, cancelImageUpload, completeImageUpload, editor, exportImage, flush, isViewer, pushAiStreamEvent, removeResource, renameResource, replaceAll, search, setContent]
   );
 
   useEffect(() => {
@@ -411,7 +1242,7 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
     void onReadyRef.current(Math.round(performance.now() - startedAtRef.current));
     let focusFrame = 0;
     let focusRetry: number | null = null;
-    if (props.autoFocus) {
+    if (autoFocus) {
       const focusAtEnd = () => {
         if (!editor.isDestroyed) {
           editor.commands.focus("end");
@@ -429,42 +1260,175 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
         flush();
       }
     };
-    window.addEventListener("pagehide", handlePageHide);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    if (!isViewer) {
+      window.addEventListener("pagehide", handlePageHide);
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
 
     return () => {
       window.cancelAnimationFrame(focusFrame);
       if (focusRetry !== null) {
         window.clearTimeout(focusRetry);
       }
-      window.removeEventListener("pagehide", handlePageHide);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (!isViewer) {
+        window.removeEventListener("pagehide", handlePageHide);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
       if (changeTimerRef.current !== null) {
         window.clearTimeout(changeTimerRef.current);
       }
+      if (aiSelectionHintTimerRef.current !== null) {
+        window.clearTimeout(aiSelectionHintTimerRef.current);
+      }
+      if (aiUndoTimerRef.current !== null) {
+        window.clearTimeout(aiUndoTimerRef.current);
+      }
     };
-  }, [editor, flush, props.autoFocus]);
+  }, [autoFocus, editor, flush, isViewer]);
+
+  // Keep the viewer in sync when the parent swaps memo content.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !isViewer) {
+      return;
+    }
+    const next = resolveImageSources(props.content, props.baseUrl);
+    const current = JSON.stringify(editor.getJSON());
+    const incoming = JSON.stringify(next);
+    if (current !== incoming) {
+      editor.commands.setContent(next, { emitUpdate: false });
+    }
+  }, [editor, isViewer, props.baseUrl, props.content]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || isViewer) {
+      return;
+    }
+
+    let scrollFrame = 0;
+    let triggerFrame = 0;
+    let settledScrollTimer: number | null = null;
+    const scrollContainer = getEditorScrollContainer(editor);
+    const updateAiSelectionTrigger = () => {
+      if (!onAiRequestRef.current || editor.isDestroyed) {
+        setAiSelectionTrigger(null);
+        return;
+      }
+      const { empty, from, to } = editor.state.selection;
+      if (empty || from >= to || !editor.state.doc.textBetween(from, to, " ").trim()) {
+        setAiSelectionTrigger(null);
+        return;
+      }
+      const shell = editor.view.dom.closest<HTMLElement>(".edgeever-editor-shell");
+      if (!shell || !scrollContainer) {
+        setAiSelectionTrigger(null);
+        return;
+      }
+      try {
+        const shellRect = shell.getBoundingClientRect();
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const next = resolveMobileAiSelectionTriggerPosition({
+          selectionStart: editor.view.coordsAtPos(from),
+          selectionEnd: editor.view.coordsAtPos(to),
+          shell: shellRect,
+          visibleBounds: {
+            top: Math.max(containerRect.top, viewport?.offsetTop ?? containerRect.top),
+            bottom: Math.min(
+              containerRect.bottom,
+              viewport ? viewport.offsetTop + viewport.height : containerRect.bottom,
+            ),
+          },
+        });
+        setAiSelectionTrigger((current) => current?.left === next.left && current.top === next.top ? current : next);
+      } catch {
+        setAiSelectionTrigger(null);
+      }
+    };
+    const scheduleAiSelectionTriggerUpdate = () => {
+      window.cancelAnimationFrame(triggerFrame);
+      triggerFrame = window.requestAnimationFrame(updateAiSelectionTrigger);
+    };
+    const ensureSelectionVisible = () => {
+      updateEditorKeyboardInset(editor);
+      scheduleAiSelectionTriggerUpdate();
+      window.cancelAnimationFrame(scrollFrame);
+      scrollFrame = window.requestAnimationFrame(() => {
+        if (!editor.isDestroyed && editor.isFocused) {
+          scrollEditorPositionIntoView(editor, editor.state.selection.head);
+        }
+      });
+      if (settledScrollTimer !== null) {
+        window.clearTimeout(settledScrollTimer);
+      }
+      // Android IMEs animate the visible viewport after focus. Recheck once the
+      // animation settles so the last line stays above the keyboard.
+      settledScrollTimer = window.setTimeout(() => {
+        settledScrollTimer = null;
+        if (!editor.isDestroyed && editor.isFocused) {
+          updateEditorKeyboardInset(editor);
+          scrollEditorPositionIntoView(editor, editor.state.selection.head);
+        }
+      }, 180);
+    };
+
+    const handleSelectionUpdate = () => {
+      scheduleAiSelectionTriggerUpdate();
+      if (editor.isFocused) {
+        ensureSelectionVisible();
+      }
+    };
+    const visualViewport = window.visualViewport;
+    window.addEventListener("resize", ensureSelectionVisible);
+    visualViewport?.addEventListener("resize", ensureSelectionVisible);
+    visualViewport?.addEventListener("scroll", ensureSelectionVisible);
+    scrollContainer?.addEventListener("scroll", scheduleAiSelectionTriggerUpdate, { passive: true });
+    editor.on("focus", ensureSelectionVisible);
+    editor.on("selectionUpdate", handleSelectionUpdate);
+    updateEditorKeyboardInset(editor);
+    scheduleAiSelectionTriggerUpdate();
+
+    return () => {
+      window.cancelAnimationFrame(scrollFrame);
+      window.cancelAnimationFrame(triggerFrame);
+      if (settledScrollTimer !== null) {
+        window.clearTimeout(settledScrollTimer);
+      }
+      window.removeEventListener("resize", ensureSelectionVisible);
+      visualViewport?.removeEventListener("resize", ensureSelectionVisible);
+      visualViewport?.removeEventListener("scroll", ensureSelectionVisible);
+      scrollContainer?.removeEventListener("scroll", scheduleAiSelectionTriggerUpdate);
+      editor.off("focus", ensureSelectionVisible);
+      editor.off("selectionUpdate", handleSelectionUpdate);
+    };
+  }, [editor, isViewer]);
 
   const toolbarState = useEditorState({
     editor,
     selector: ({ editor: activeEditor }) =>
       (activeEditor?.isActive("bold") ? MOBILE_EDITOR_ACTIVE_FLAGS.bold : 0) |
-      (activeEditor?.isActive("codeBlock", { language: "mermaid" }) ? MOBILE_EDITOR_ACTIVE_FLAGS.mermaid : 0) |
       (activeEditor?.isActive("bulletList") ? MOBILE_EDITOR_ACTIVE_FLAGS.bulletList : 0) |
-      (activeEditor?.isActive("blockquote") ? MOBILE_EDITOR_ACTIVE_FLAGS.blockquote : 0) |
-      (activeEditor?.isActive("table") ? MOBILE_EDITOR_ACTIVE_FLAGS.table : 0) |
-      (activeEditor?.isActive("tableHeader") ? MOBILE_EDITOR_ACTIVE_FLAGS.tableHeader : 0),
+      (activeEditor?.isActive("taskList") ? MOBILE_EDITOR_ACTIVE_FLAGS.taskList : 0) |
+      (activeEditor?.isActive("blockquote") ? MOBILE_EDITOR_ACTIVE_FLAGS.blockquote : 0),
   });
-  const tableMenuCopy = getMobileEditorTableMenuCopy(props.locale);
-
-  useEffect(() => {
-    if (!(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table)) {
-      setTableMenuOpen(false);
+  const requestOpenAiForSelection = () => {
+    if (openAiForSelection()) {
+      setAiSelectionHint(false);
+      if (aiSelectionHintTimerRef.current !== null) {
+        window.clearTimeout(aiSelectionHintTimerRef.current);
+        aiSelectionHintTimerRef.current = null;
+      }
+      return;
     }
-  }, [toolbarState]);
+    setAiSelectionHint(true);
+    if (aiSelectionHintTimerRef.current !== null) window.clearTimeout(aiSelectionHintTimerRef.current);
+    aiSelectionHintTimerRef.current = window.setTimeout(() => {
+      aiSelectionHintTimerRef.current = null;
+      setAiSelectionHint(false);
+    }, 2200);
+  };
 
   const insertImage = async () => {
-    if (!editor || imageUploadInFlightRef.current) {
+    if (isViewer || !editor || imageUploadInFlightRef.current || !onPickImageRef.current) {
       return;
     }
 
@@ -482,148 +1446,101 @@ function LocalTiptapEditorImpl(props: LocalTiptapEditorProps) {
     }
   };
 
-  const runTableAction = (action: MobileEditorTableActionId) => {
-    const chain = editor?.chain().focus();
-    if (!chain) {
-      return;
-    }
-
-    switch (action) {
-      case "insertTable":
-        chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-        return;
-      case "addTableRow":
-        chain.addRowAfter().run();
-        return;
-      case "deleteTableRow":
-        if (!editor?.isActive("tableHeader")) {
-          chain.deleteRow().run();
-        }
-        return;
-      case "addTableColumn":
-        chain.addColumnAfter().run();
-        return;
-      case "deleteTableColumn":
-        chain.deleteColumn().run();
-        return;
-      case "toggleTableHeader":
-        chain.toggleHeaderRow().run();
-        return;
-      case "deleteTable":
-        chain.deleteTable().run();
-    }
-  };
-
   const toolbarIcons: Record<MobileEditorToolbarActionId, ReactNode> = {
     image: <ImagePlusIcon />,
-    mermaid: <DiagramIcon />,
     bold: <BoldIcon />,
     bulletList: <ListIcon />,
+    taskList: <ListTodoIcon />,
+    increaseListIndent: <ListIndentIncreaseIcon />,
+    decreaseListIndent: <ListIndentDecreaseIcon />,
     blockquote: <QuoteIcon />,
     horizontalRule: <MinusIcon />,
-    insertTable: <TableGridIcon />,
-    addTableRow: null,
-    deleteTableRow: null,
-    addTableColumn: null,
-    deleteTableColumn: null,
-    toggleTableHeader: null,
-    deleteTable: null,
   };
+  const activeListItemType = editor?.isActive("taskItem") ? "taskItem" : "listItem";
   const toolbarHandlers: Record<MobileEditorToolbarActionId, () => void> = {
     image: () => void insertImage(),
-    mermaid: () => {
-      if (!editor) {
-        return;
-      }
-      if (editor.isActive("codeBlock")) {
-        editor.chain().focus().updateAttributes("codeBlock", { language: "mermaid" }).run();
-        return;
-      }
-      editor.chain().focus().insertContent({
-        type: "codeBlock",
-        attrs: { language: "mermaid" },
-        content: [{ type: "text", text: "flowchart LR\n  A[Start] --> B[End]" }],
-      }).run();
-    },
     bold: () => editor?.chain().focus().toggleBold().run(),
     bulletList: () => editor?.chain().focus().toggleBulletList().run(),
+    taskList: () => editor?.chain().focus().toggleTaskList().run(),
+    increaseListIndent: () => editor?.chain().focus().sinkListItem(activeListItemType).run(),
+    decreaseListIndent: () => editor?.chain().focus().liftListItem(activeListItemType).run(),
     blockquote: () => editor?.chain().focus().toggleBlockquote().run(),
     horizontalRule: () => editor?.chain().focus().setHorizontalRule().run(),
-    insertTable: () => runTableAction("insertTable"),
-    addTableRow: () => runTableAction("addTableRow"),
-    deleteTableRow: () => runTableAction("deleteTableRow"),
-    addTableColumn: () => runTableAction("addTableColumn"),
-    deleteTableColumn: () => runTableAction("deleteTableColumn"),
-    toggleTableHeader: () => runTableAction("toggleTableHeader"),
-    deleteTable: () => runTableAction("deleteTable"),
   };
 
   return (
-    <div className="edgeever-editor-shell">
-      <style>{getEditorStyles(props.theme)}</style>
-      <div aria-label={getMobileEditorToolbarLabel(props.locale)} className="edgeever-editor-toolbar" role="toolbar">
-        {MOBILE_EDITOR_TOOLBAR_ACTIONS
-          .filter((action) => !action.requiresTable
-            && (!(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table) || action.id !== "insertTable"))
-          .map((action) => (
-            <ToolbarButton
-              key={action.id}
-              active={action.activeFlag > 0 && Boolean(toolbarState & action.activeFlag)}
-              disabled={action.id === "insertTable" && Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table)}
-              icon={toolbarIcons[action.id]}
-              label={getMobileEditorToolbarActionLabel(action.id, props.locale)}
-              onRun={toolbarHandlers[action.id]}
-            />
-          ))}
-        {Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table) && (
-          <button
-            aria-label={tableMenuCopy.title}
-            className="edgeever-table-menu-trigger"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => setTableMenuOpen(true)}
-            type="button"
-          >
-            <TableGridIcon />
-            <span>{tableMenuCopy.title}</span>
-          </button>
-        )}
-      </div>
-      {Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.table) && tableMenuOpen && (
-        <div className="edgeever-table-menu-backdrop" role="presentation" onMouseDown={() => setTableMenuOpen(false)}>
-          <section
-            aria-label={tableMenuCopy.title}
-            aria-modal="true"
-            className="edgeever-table-menu-sheet"
-            role="dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="edgeever-table-menu-handle" aria-hidden="true" />
-            <div className="edgeever-table-menu-header">
-              <strong>{tableMenuCopy.title}</strong>
-              <button type="button" onClick={() => setTableMenuOpen(false)}>{tableMenuCopy.close}</button>
-            </div>
-            <div className="edgeever-table-menu-actions">
-              {MOBILE_EDITOR_TOOLBAR_ACTIONS.filter((action) => action.requiresTable).map((action) => (
-                <button
-                  key={action.id}
-                  className={action.id === "deleteTable" ? "is-destructive" : undefined}
-                  disabled={isMobileEditorActionDisabledInTableHeader(action.id)
-                    && Boolean(toolbarState & MOBILE_EDITOR_ACTIVE_FLAGS.tableHeader)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setTableMenuOpen(false);
-                    toolbarHandlers[action.id]();
-                  }}
-                  type="button"
-                >
-                  {getMobileEditorToolbarActionLabel(action.id, props.locale)}
-                </button>
-              ))}
-            </div>
-          </section>
+    <div className={isViewer ? "edgeever-editor-shell edgeever-viewer-shell" : "edgeever-editor-shell"}>
+      <style>{getEditorStyles(props.theme, { viewer: isViewer })}</style>
+      {!isViewer ? (
+        <div aria-label={getMobileEditorToolbarLabel(props.locale)} className="edgeever-editor-toolbar" role="toolbar">
+          {MOBILE_EDITOR_TOOLBAR_ACTIONS.map((action) => (
+              <ToolbarButton
+                key={action.id}
+                active={action.activeFlag > 0 && Boolean(toolbarState & action.activeFlag)}
+                disabled={(action.id === "increaseListIndent"
+                    && !Boolean(editor?.can().chain().focus().sinkListItem(activeListItemType).run()))
+                  || (action.id === "decreaseListIndent"
+                    && !Boolean(editor?.can().chain().focus().liftListItem(activeListItemType).run()))}
+                icon={toolbarIcons[action.id]}
+                label={getMobileEditorToolbarActionLabel(action.id, props.locale)}
+                onRun={toolbarHandlers[action.id]}
+              />
+            ))}
+          {onAiRequestRef.current ? (
+            <button
+              aria-label={props.locale === "en-US" ? "Use AI on the note or selected text" : "用 AI 处理正文或选中内容"}
+              className="edgeever-ai-toolbar-button"
+              onClick={requestOpenAiForSelection}
+              onMouseDown={(event) => event.preventDefault()}
+              type="button"
+            >
+              <SparklesIcon />
+              <span>AI</span>
+            </button>
+          ) : null}
         </div>
-      )}
-      <EditorContent editor={editor} />
+      ) : null}
+      <EditorContent className="edgeever-editor-scroll" editor={editor} />
+      {aiSelectionTrigger && !aiPanel ? (
+        <button
+          aria-label={props.locale === "en-US" ? "Use AI on selected text" : "用 AI 处理选中内容"}
+          className="edgeever-ai-selection-trigger"
+          onClick={requestOpenAiForSelection}
+          onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={(event) => event.preventDefault()}
+          style={{ left: aiSelectionTrigger.left, top: aiSelectionTrigger.top }}
+          type="button"
+        >
+          <SparklesIcon />
+          <span>AI</span>
+        </button>
+      ) : null}
+      {aiSelectionHint ? (
+        <div aria-live="polite" className="edgeever-ai-selection-hint" role="status">
+          {props.locale === "en-US" ? "Add some note content first." : "请先输入正文内容。"}
+        </div>
+      ) : null}
+      {aiUndoFingerprint && !aiPanel ? (
+        <div aria-live="polite" className="edgeever-ai-undo" role="status">
+          <span>{props.locale === "en-US" ? "AI updated the selection." : "AI 已更新选中内容。"}</span>
+          <button onClick={undoAiSelectionDraft} onMouseDown={(event) => event.preventDefault()} type="button">
+            {props.locale === "en-US" ? "Undo" : "撤销"}
+          </button>
+        </div>
+      ) : null}
+      {aiPanel ? (
+        <MobileSelectionAiPanel
+          locale={props.locale}
+          onApply={applyAiSelectionDraft}
+          onChange={setAiPanel}
+          onClose={closeAiPanel}
+          onGenerate={() => runAiSelectionRequest()}
+          onRefine={(instruction) => runAiSelectionRequest(instruction)}
+          onStop={stopAiSelectionRequest}
+          panel={aiPanel}
+          prompts={aiPrompts}
+        />
+      ) : null}
     </div>
   );
 }
@@ -642,42 +1559,316 @@ const ToolbarButton = ({ active = false, disabled = false, icon, label, onRun }:
   </button>
 );
 
-type EditorSearchMatch = { from: number; to: number };
+const MobileSelectionAiPanel = ({
+  locale,
+  onApply,
+  onChange,
+  onClose,
+  onGenerate,
+  onRefine,
+  onStop,
+  panel,
+  prompts,
+}: {
+  locale: "zh-CN" | "en-US";
+  onApply: (mode: "append" | "replace") => void;
+  onChange: Dispatch<SetStateAction<MobileAiPanelState | null>>;
+  onClose: () => void;
+  onGenerate: () => void;
+  onRefine: (instruction: string) => void;
+  onStop: () => void;
+  panel: MobileAiPanelState;
+  prompts: AiPromptTemplate[];
+}) => {
+  const english = locale === "en-US";
+  const [picker, setPicker] = useState<MobileAiPickerKind | null>(null);
+  const actionLabels: Record<AiAction, string> = {
+    summarize: english ? "Summarize" : "总结",
+    "extract-key-points": english ? "Key points" : "提炼要点",
+    "extract-todos": english ? "Extract tasks" : "提取待办",
+    "rewrite-proofread": english ? "Convert to Xiaohongshu style" : "转为小红书风格",
+    translate: english ? "Translate" : "翻译",
+    "improve-writing": english ? "Improve writing" : "改进写作",
+    "fix-spelling-grammar": english ? "Fix spelling & grammar" : "修正拼写与语法",
+    "make-shorter": english ? "Make concise" : "精炼表达",
+    "make-longer": english ? "Make longer" : "扩写内容",
+    "simplify-language": english ? "Convert to X (Twitter) style" : "转为推特风格",
+    "change-tone": english ? "Change tone" : "调整语气",
+    "continue-writing": english ? "Continue writing" : "继续写作",
+    custom: english ? "Custom prompt" : "自定义指令",
+  };
+  const languageLabels: Record<AiTargetLanguage, string> = {
+    en: english ? "English" : "英语",
+    "zh-CN": english ? "Simplified Chinese" : "简体中文",
+    "zh-TW": english ? "Traditional Chinese" : "繁体中文",
+    ja: english ? "Japanese" : "日语",
+    ko: english ? "Korean" : "韩语",
+    es: english ? "Spanish" : "西班牙语",
+    fr: english ? "French" : "法语",
+    de: english ? "German" : "德语",
+    pt: english ? "Portuguese" : "葡萄牙语",
+  };
+  const toneLabels: Record<AiTone, string> = {
+    professional: english ? "Professional" : "专业",
+    friendly: english ? "Friendly" : "友好",
+    casual: english ? "Casual" : "轻松",
+    direct: english ? "Direct" : "直接",
+  };
+  const update = (next: Partial<MobileAiPanelState>) => onChange((current) => current ? { ...current, ...next } : current);
+  const generateDisabled = panel.generating || (!panel.promptId && panel.action === "custom" && !panel.customInstruction.trim());
+  const appendDisabled = panel.generating || !panel.output || panel.resultMode === "replace";
+  const replaceDisabled = panel.generating || !panel.output || panel.resultMode === "append";
+  const selectedPrompt = panel.promptId ? prompts.find((prompt) => prompt.id === panel.promptId) ?? null : null;
 
-const getEditorSearchMatches = (editor: ReturnType<typeof useEditor>, query: string): EditorSearchMatch[] => {
-  const needle = query.trim().toLocaleLowerCase();
-  if (!editor || editor.isDestroyed || needle.length === 0) {
-    return [];
-  }
-
-  const characters: Array<{ char: string; pos: number }> = [];
-  let previousTextEnd: number | null = null;
-  editor.state.doc.descendants((node, pos) => {
-    if (!node.isText || !node.text) {
+  const selectPromptOrAction = (value: string) => {
+    if (value.startsWith(AI_PROMPT_OPTION_PREFIX)) {
+      const promptId = value.slice(AI_PROMPT_OPTION_PREFIX.length);
+      const prompt = prompts.find((item) => item.id === promptId);
+      if (!prompt) return;
+      update({
+        action: prompt.action,
+        promptId: prompt.id,
+        parameterKind: prompt.parameterKind,
+        resultMode: prompt.resultMode,
+        output: "",
+        error: null,
+      });
       return;
     }
-    if (previousTextEnd !== null && pos > previousTextEnd) {
-      characters.push({ char: "\u0000", pos: -1 });
-    }
-    for (let index = 0; index < node.text.length; index += 1) {
-      characters.push({ char: node.text[index] ?? "", pos: pos + index });
-    }
-    previousTextEnd = pos + node.text.length;
-  });
+    const action = value as AiAction;
+    update({
+      action,
+      promptId: null,
+      parameterKind: fallbackPromptParameterKind(action),
+      resultMode: fallbackPromptResultMode(action),
+      output: "",
+      error: null,
+    });
+  };
 
-  const haystack = characters.map((item) => item.char).join("").toLocaleLowerCase();
-  const matches: EditorSearchMatch[] = [];
-  let index = haystack.indexOf(needle);
-  while (index !== -1) {
-    const start = characters[index];
-    const end = characters[index + needle.length - 1];
-    if (start && end && start.pos >= 0 && end.pos >= 0) {
-      matches.push({ from: start.pos, to: end.pos + 1 });
-    }
-    index = haystack.indexOf(needle, index + needle.length);
-  }
-  return matches;
+  const pickerOptions: MobileAiPickerOption[] = picker === "action"
+    ? (prompts.length > 0
+      ? [
+          ...prompts.map((prompt) => ({
+            active: panel.promptId === prompt.id,
+            label: prompt.name,
+            value: `${AI_PROMPT_OPTION_PREFIX}${prompt.id}`,
+          })),
+          { active: !panel.promptId && panel.action === "custom", label: actionLabels.custom, value: "custom" },
+        ]
+      : (panel.selection.wholeNote ? AI_WHOLE_NOTE_ACTIONS : AI_SELECTED_TEXT_ACTIONS).map((action) => ({
+          active: !panel.promptId && panel.action === action,
+          label: actionLabels[action],
+          value: action,
+        })))
+    : picker === "language"
+      ? AI_TARGET_LANGUAGES.map((language) => ({
+          active: panel.targetLanguage === language,
+          label: languageLabels[language],
+          value: language,
+        }))
+      : picker === "tone"
+        ? AI_TONES.map((tone) => ({
+            active: panel.tone === tone,
+            label: toneLabels[tone],
+            value: tone,
+          }))
+        : [];
+
+  const pickerTitle = picker === "action"
+    ? (english ? "Choose an action" : "选择处理方式")
+    : picker === "language"
+      ? (english ? "Choose target language" : "选择目标语言")
+      : (english ? "Choose tone" : "选择语气");
+
+  const choosePickerOption = (value: string) => {
+    if (picker === "action") selectPromptOrAction(value);
+    if (picker === "language") update({ targetLanguage: value as AiTargetLanguage, output: "", error: null });
+    if (picker === "tone") update({ tone: value as AiTone, output: "", error: null });
+    setPicker(null);
+  };
+
+  useEffect(() => {
+    if (!picker) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPicker(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [picker]);
+
+  return (
+    <section
+      aria-label={panel.selection.wholeNote
+        ? (english ? "AI whole-note assistant" : "AI 全文助手")
+        : (english ? "AI selection assistant" : "AI 选区助手")}
+      aria-modal="true"
+      className="edgeever-ai-panel"
+      role="dialog"
+    >
+      <header className="edgeever-ai-panel-header">
+        <div>
+          <strong>{panel.selection.wholeNote
+            ? (english ? "AI whole-note assistant" : "AI 全文助手")
+            : (english ? "AI selection assistant" : "AI 选区助手")}</strong>
+          <small>{panel.selection.wholeNote
+            ? (english ? "No text selected; the whole note will be processed." : "未选择文字，将处理整篇正文。")
+            : (english ? "Only the selected text will be processed." : "只处理当前选中的正文。")}</small>
+        </div>
+        <button aria-label={english ? "Close" : "关闭"} onClick={onClose} type="button">×</button>
+      </header>
+      <div className="edgeever-ai-panel-body">
+        <MobileAiPickerField
+          disabled={panel.generating}
+          expanded={picker === "action"}
+          label={english ? "Action" : "处理方式"}
+          onOpen={() => setPicker("action")}
+          value={selectedPrompt?.name ?? actionLabels[panel.action]}
+        />
+        {panel.parameterKind === "target-language" ? (
+          <MobileAiPickerField
+            disabled={panel.generating}
+            expanded={picker === "language"}
+            label={english ? "Target language" : "目标语言"}
+            onOpen={() => setPicker("language")}
+            value={languageLabels[panel.targetLanguage]}
+          />
+        ) : null}
+        {panel.parameterKind === "tone" ? (
+          <MobileAiPickerField
+            disabled={panel.generating}
+            expanded={picker === "tone"}
+            label={english ? "Tone" : "语气"}
+            onOpen={() => setPicker("tone")}
+            value={toneLabels[panel.tone]}
+          />
+        ) : null}
+        {!panel.promptId && panel.action === "custom" ? (
+          <label>
+            <span>{english ? "Tell AI what to do" : "告诉 AI 你想怎么处理"}</span>
+            <textarea
+              disabled={panel.generating}
+              maxLength={2000}
+              onChange={(event) => update({ customInstruction: event.target.value })}
+              placeholder={english ? "For example: Rewrite this as a concise email." : "例如：改写成一封简洁的邮件。"}
+              rows={3}
+              value={panel.customInstruction}
+            />
+          </label>
+        ) : null}
+        <div className="edgeever-ai-result-heading">
+          <span>{english ? "AI draft" : "AI 草稿"}</span>
+          {panel.generating ? <small>{english ? "Generating…" : "生成中…"}</small> : null}
+        </div>
+        <div aria-live="polite" className="edgeever-ai-result">
+          {panel.output || <span>{english ? "The generated draft will appear here." : "生成的草稿会显示在这里。"}</span>}
+        </div>
+        {panel.output && !panel.generating ? (
+          <label>
+            <span>{english ? "Refine result" : "继续调整"}</span>
+            <div className="edgeever-ai-refine-row">
+              <input
+                maxLength={2000}
+                onChange={(event) => update({ refineInstruction: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing && panel.refineInstruction.trim()) {
+                    event.preventDefault();
+                    onRefine(panel.refineInstruction);
+                  }
+                }}
+                placeholder={english ? "Make it more concise" : "例如：再简洁一点"}
+                value={panel.refineInstruction}
+              />
+              <button disabled={!panel.refineInstruction.trim()} onClick={() => onRefine(panel.refineInstruction)} type="button">
+                {english ? "Refine" : "调整"}
+              </button>
+            </div>
+          </label>
+        ) : null}
+        {panel.error ? <p className="edgeever-ai-error" role="alert">{panel.error}</p> : null}
+      </div>
+      <footer className="edgeever-ai-panel-footer">
+        <div>
+          <button disabled={appendDisabled} onClick={() => onApply("append")} type="button">
+            {english ? "Insert after" : "插入到选区后"}
+          </button>
+          <button disabled={replaceDisabled} onClick={() => onApply("replace")} type="button">
+            {english ? "Replace selection" : "替换选中内容"}
+          </button>
+        </div>
+        {panel.generating ? (
+          <button className="is-primary" onClick={onStop} type="button">{english ? "Stop" : "停止"}</button>
+        ) : (
+          <button className="is-primary" disabled={generateDisabled} onClick={onGenerate} type="button">
+            {panel.output ? (english ? "Regenerate" : "重新生成") : (english ? "Generate" : "生成")}
+          </button>
+        )}
+      </footer>
+      {picker ? (
+        <div className="edgeever-ai-picker-backdrop" onClick={() => setPicker(null)} role="presentation">
+          <section
+            aria-label={pickerTitle}
+            aria-modal="true"
+            className="edgeever-ai-picker-sheet"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <div aria-hidden="true" className="edgeever-ai-picker-handle" />
+            <header className="edgeever-ai-picker-header">
+              <strong>{pickerTitle}</strong>
+              <button aria-label={english ? "Close" : "关闭"} onClick={() => setPicker(null)} type="button">×</button>
+            </header>
+            <div aria-label={pickerTitle} className="edgeever-ai-picker-options" role="radiogroup">
+              {pickerOptions.map((option) => (
+                <button
+                  aria-checked={option.active}
+                  autoFocus={option.active}
+                  className={option.active ? "is-selected" : undefined}
+                  key={option.value}
+                  onClick={() => choosePickerOption(option.value)}
+                  role="radio"
+                  type="button"
+                >
+                  <span>{option.label}</span>
+                  <span aria-hidden="true" className="edgeever-ai-picker-check">✓</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </section>
+  );
 };
+
+const MobileAiPickerField = ({
+  disabled,
+  expanded,
+  label,
+  onOpen,
+  value,
+}: {
+  disabled: boolean;
+  expanded: boolean;
+  label: string;
+  onOpen: () => void;
+  value: string;
+}) => (
+  <div className="edgeever-ai-picker-field">
+    <span>{label}</span>
+    <button
+      aria-expanded={expanded}
+      aria-haspopup="dialog"
+      className="edgeever-ai-picker-trigger"
+      disabled={disabled}
+      onClick={onOpen}
+      type="button"
+    >
+      <span>{value}</span>
+      <span aria-hidden="true" className="edgeever-ai-picker-chevron" />
+    </button>
+  </div>
+);
 
 const EditorIcon = ({ children, size, strokeWidth }: { children: ReactNode; size: number; strokeWidth: number }) => (
   <svg aria-hidden="true" fill="none" height={size} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth={strokeWidth} viewBox="0 0 24 24" width={size}>
@@ -703,18 +1894,32 @@ const BoldIcon = () => (
   </EditorIcon>
 );
 
-const DiagramIcon = () => (
-  <EditorIcon size={18} strokeWidth={2}>
-    <rect height="5" rx="1" width="7" x="2" y="3" />
-    <rect height="5" rx="1" width="7" x="15" y="16" />
-    <path d="M9 5.5h3a3 3 0 0 1 3 3v5a3 3 0 0 0 3 3" />
-    <path d="m15 13 3 3-3 3" />
-  </EditorIcon>
-);
-
 const ListIcon = () => (
   <EditorIcon size={18} strokeWidth={2.2}>
     <path d="M3 5h.01M3 12h.01M3 19h.01M8 5h13M8 12h13M8 19h13" />
+  </EditorIcon>
+);
+
+const ListTodoIcon = () => (
+  <EditorIcon size={18} strokeWidth={2.1}>
+    <rect height="6" rx="1" width="6" x="3" y="3" />
+    <path d="m4.5 6 1 1 2-2M13 6h8" />
+    <rect height="6" rx="1" width="6" x="3" y="15" />
+    <path d="M13 18h8" />
+  </EditorIcon>
+);
+
+const ListIndentIncreaseIcon = () => (
+  <EditorIcon size={18} strokeWidth={2.1}>
+    <path d="M4 5h16M4 12h10M4 19h16" />
+    <path d="m14 9 3 3-3 3" />
+  </EditorIcon>
+);
+
+const ListIndentDecreaseIcon = () => (
+  <EditorIcon size={18} strokeWidth={2.1}>
+    <path d="M4 5h16M10 12h10M4 19h16" />
+    <path d="m10 9-3 3 3 3" />
   </EditorIcon>
 );
 
@@ -731,10 +1936,11 @@ const MinusIcon = () => (
   </EditorIcon>
 );
 
-const TableGridIcon = () => (
-  <EditorIcon size={18} strokeWidth={2}>
-    <rect height="16" rx="1" width="18" x="3" y="4" />
-    <path d="M3 10h18M9 4v16M15 4v16" />
+const SparklesIcon = () => (
+  <EditorIcon size={16} strokeWidth={2.1}>
+    <path d="m12 3-1.9 4.1L6 9l4.1 1.9L12 15l1.9-4.1L18 9l-4.1-1.9Z" />
+    <path d="m5 16-.8 1.8L2.5 19l1.7.8L5 21.5l.8-1.7 1.7-.8-1.7-.8Z" />
+    <path d="m19 15-.7 1.4L17 17l1.3.6.7 1.4.7-1.4L21 17l-1.3-.6Z" />
   </EditorIcon>
 );
 
@@ -770,11 +1976,10 @@ const normalizeImageSources = (doc: EditorDoc, baseUrl: string) => {
 const getPersistableEditorDoc = (doc: EditorDoc, baseUrl: string) =>
   normalizeImageSources(stripMobileImageUploadPlaceholders(doc), baseUrl);
 
-const normalizeProtectedResourceSource = (source: string, baseUrl: string) => {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
-  const relativeSource = source.startsWith(`${normalizedBaseUrl}/`) ? source.slice(normalizedBaseUrl.length) : source;
-  return relativeSource.startsWith("/api/v1/resources/") ? relativeSource : null;
-};
+const normalizeProtectedResourceSource = (source: string, baseUrl: string) =>
+  // Shared normalizer adds `/blob` so editor loads hit the API blob route even when
+  // note content stores the bare `/api/v1/resources/:id` form.
+  toProtectedResourceLoadPath(source, baseUrl);
 
 const resolveUrl = (source: string, baseUrl: string) => {
   if (!source.startsWith("/")) {
@@ -816,14 +2021,17 @@ const getMobileMermaidThemeVariables = (theme: "light" | "dark") => {
   };
 };
 
+let mermaidRuntime: Promise<typeof import("mermaid")["default"]> | null = null;
+
 const loadMermaid = () => {
-  const mermaid = (globalThis as typeof globalThis & {
-    mermaid?: typeof import("mermaid")["default"];
-  }).mermaid;
-  if (!mermaid) {
-    return Promise.reject(new Error("Mermaid runtime unavailable"));
-  }
-  return Promise.resolve(mermaid);
+  mermaidRuntime ??= import("mermaid/dist/mermaid.min.js").then(() => {
+    const mermaid = (globalThis as typeof globalThis & {
+      mermaid?: typeof import("mermaid")["default"];
+    }).mermaid;
+    if (!mermaid) throw new Error("Mermaid runtime unavailable");
+    return mermaid;
+  });
+  return mermaidRuntime;
 };
 
 const createMobileCodeBlockExtension = (
@@ -934,7 +2142,7 @@ const createMobileCodeBlockExtension = (
           preview.replaceChildren(message);
           void loadMermaid()
             .then(async (mermaid) => {
-              const beautifulSvg = renderWithBeautifulMermaid(source, theme);
+              const beautifulSvg = await renderWithBeautifulMermaid(source, theme);
               if (beautifulSvg) {
                 return { svg: beautifulSvg };
               }
@@ -1009,15 +2217,12 @@ const createMobileImageSizeControls = (
     const label = getMobileEditorImageWidthPresetLabel(preset.id, locale);
     button.type = "button";
     button.className = "edgeever-image-size-button";
-    button.setAttribute("aria-label", `${label}，${preset.width}%`);
+    button.setAttribute("aria-label", label);
     button.setAttribute("aria-pressed", "false");
 
     const labelNode = document.createElement("span");
     labelNode.textContent = label;
-    const percentNode = document.createElement("span");
-    percentNode.className = "edgeever-image-size-percent";
-    percentNode.textContent = `${preset.width}%`;
-    button.append(labelNode, percentNode);
+    button.append(labelNode);
 
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -1050,7 +2255,12 @@ const createMobileImageSizeControls = (
 const createProtectedImageExtension = (
   baseUrl: string,
   locale: "zh-CN" | "en-US",
-  loadResource: (source: string) => Promise<string | null>
+  loadResource: (source: string) => Promise<string | null>,
+  options?: {
+    readOnly?: boolean;
+    onResourcePress?: (targetJson: string) => void | Promise<void>;
+    onImagePreview?: (payloadJson: string) => void | Promise<void>;
+  }
 ) => Image.extend({
   addAttributes() {
     return {
@@ -1068,7 +2278,11 @@ const createProtectedImageExtension = (
   },
   addNodeView() {
     return ({ editor, getPos, node }) => {
+      const readOnly = Boolean(options?.readOnly) || !editor.isEditable;
       const updateWidth = (width: number) => {
+        if (readOnly) {
+          return;
+        }
         const position = getPos();
         if (typeof position !== "number") {
           return;
@@ -1081,6 +2295,40 @@ const createProtectedImageExtension = (
           .run();
       };
       const sizeControls = createMobileImageSizeControls(locale, updateWidth);
+      if (readOnly) {
+        sizeControls.setVisible(false);
+      }
+
+      const emitImageResourcePress = (figure: HTMLElement) => {
+        const targetJson = buildImageResourceTargetJson(figure);
+        if (!targetJson || !options?.onResourcePress) return false;
+        void options.onResourcePress(targetJson);
+        return true;
+      };
+
+      const emitImagePreview = (figure: HTMLElement) => {
+        if (!options?.onImagePreview) return false;
+        const source = figure.dataset.resourceHref ?? "";
+        if (!source) return false;
+        void options.onImagePreview(JSON.stringify({
+          alt: figure.dataset.resourceFilename || "",
+          source,
+        }));
+        return true;
+      };
+
+      const bindImageActionButton = (figure: HTMLElement, button: HTMLButtonElement) => {
+        // Only stop bubbling so the editor doesn't steal focus/selection.
+        // preventDefault on pointerdown suppresses click on Android WebView.
+        button.addEventListener("pointerdown", (event) => {
+          event.stopPropagation();
+        });
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          emitImageResourcePress(figure);
+        });
+      };
 
       if (isMobileImageUploadPlaceholderSource(node.attrs.src)) {
         const placeholder = document.createElement("div");
@@ -1094,6 +2342,10 @@ const createProtectedImageExtension = (
         preview.alt = "";
         const previewSource = String(node.attrs.title ?? "");
         if (previewSource) {
+          const previewReferrerPolicy = getImageReferrerPolicy(previewSource);
+          if (previewReferrerPolicy) {
+            preview.referrerPolicy = previewReferrerPolicy;
+          }
           preview.src = previewSource;
         }
 
@@ -1130,6 +2382,10 @@ const createProtectedImageExtension = (
           activeRequestId: number
         ) => {
           const preload = document.createElement("img");
+          const preloadReferrerPolicy = getImageReferrerPolicy(displaySource);
+          if (preloadReferrerPolicy) {
+            preload.referrerPolicy = preloadReferrerPolicy;
+          }
           preload.onload = () => {
             if (activeRequestId !== requestId) {
               return;
@@ -1147,6 +2403,14 @@ const createProtectedImageExtension = (
             placeholder.removeAttribute("role");
             placeholder.removeAttribute("aria-live");
           };
+          // Keep the upload preview until decode succeeds — never swap to a
+          // 401-prone bare resource URL that flashes a broken icon.
+          preload.onerror = () => {
+            if (activeRequestId !== requestId) {
+              return;
+            }
+            overlay.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
+          };
           preload.src = displaySource;
         };
 
@@ -1163,13 +2427,18 @@ const createProtectedImageExtension = (
 
           void loadResource(protectedSource)
             .then((dataUrl) => {
-              if (activeRequestId === requestId) {
-                revealLoadedImage(dataUrl ?? resolveUrl(source, baseUrl), attributes, activeRequestId);
+              if (activeRequestId !== requestId) {
+                return;
               }
+              if (dataUrl) {
+                revealLoadedImage(dataUrl, attributes, activeRequestId);
+                return;
+              }
+              overlay.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
             })
             .catch(() => {
               if (activeRequestId === requestId) {
-                revealLoadedImage(resolveUrl(source, baseUrl), attributes, activeRequestId);
+                overlay.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
               }
             });
         };
@@ -1211,47 +2480,162 @@ const createProtectedImageExtension = (
       }
 
       const wrapper = document.createElement("figure");
-      wrapper.className = "edgeever-image-node";
+      wrapper.className = "edgeever-image-node is-loading";
       wrapper.contentEditable = "false";
+      wrapper.setAttribute("role", "img");
+      wrapper.setAttribute("aria-busy", "true");
+
+      const loading = document.createElement("div");
+      loading.className = "edgeever-image-loading";
+      loading.setAttribute("aria-hidden", "true");
+      const spinner = document.createElement("span");
+      spinner.className = "edgeever-image-upload-spinner";
+      loading.append(spinner);
+
       const image = document.createElement("img");
-      wrapper.append(image, sizeControls.dom);
+      // Never leave <img> without a successful src — empty/401 src paints the
+      // browser broken-image glyph before the authenticated data URL arrives.
+      image.hidden = true;
+
+      const actionButton = document.createElement("button");
+      actionButton.type = "button";
+      actionButton.className = "edgeever-image-actions";
+      actionButton.contentEditable = "false";
+      actionButton.hidden = true;
+      actionButton.setAttribute("aria-label", locale === "en-US" ? "Image actions" : "图片操作");
+      actionButton.textContent = "⋯";
+      bindImageActionButton(wrapper, actionButton);
+      if (readOnly) {
+        image.style.cursor = "zoom-in";
+        image.addEventListener("click", (event) => {
+          // Ignore taps that originated on the ⋯ control (event target would be button).
+          if (event.target instanceof Element && event.target.closest(".edgeever-image-actions")) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          emitImagePreview(wrapper);
+        });
+      }
+      wrapper.append(loading, image, actionButton, sizeControls.dom);
       const imageType = node.type;
       let requestId = 0;
+      let renderedSource = "";
+      let displayReady = false;
 
       const clearRequest = () => {
         requestId += 1;
       };
 
-      const renderNode = (attributes: Record<string, unknown>) => {
-        clearRequest();
-        sizeControls.setActiveWidth(applyImageWidth(wrapper, attributes));
-        const source = String(attributes.src ?? "");
+      const setImagePhase = (phase: "loading" | "ready" | "failed") => {
+        wrapper.classList.toggle("is-loading", phase === "loading");
+        wrapper.classList.toggle("is-failed", phase === "failed");
+        wrapper.setAttribute("aria-busy", phase === "loading" ? "true" : "false");
+        loading.hidden = phase === "ready";
+        image.hidden = phase !== "ready";
+        actionButton.hidden = phase !== "ready";
+        if (phase === "failed") {
+          loading.replaceChildren();
+          const label = document.createElement("span");
+          label.className = "edgeever-image-loading-label";
+          label.textContent = locale === "en-US" ? "Image failed to load" : "图片加载失败";
+          loading.append(label);
+          loading.hidden = false;
+        } else if (phase === "loading") {
+          loading.replaceChildren(spinner);
+        }
+      };
+
+      const applyImageMeta = (attributes: Record<string, unknown>) => {
         const alt = String(attributes.alt ?? "");
         const title = String(attributes.title ?? "");
+        const source = String(attributes.src ?? "");
+        wrapper.dataset.resourceHref = source;
+        wrapper.dataset.resourceFilename = alt || title;
         image.alt = alt;
+        if (alt) {
+          wrapper.setAttribute("aria-label", alt);
+        } else {
+          wrapper.removeAttribute("aria-label");
+        }
+        const referrerPolicy = getImageReferrerPolicy(source);
+        if (referrerPolicy) {
+          image.referrerPolicy = referrerPolicy;
+        } else {
+          image.removeAttribute("referrerpolicy");
+        }
         if (title) {
           image.title = title;
         } else {
           image.removeAttribute("title");
         }
+      };
 
-        const protectedSource = normalizeProtectedResourceSource(source, baseUrl);
-        if (!protectedSource) {
-          image.src = resolveUrl(source, baseUrl);
+      /** Decode off-DOM first so the visible <img> never paints a broken glyph. */
+      const revealDisplaySource = (displaySource: string, activeRequestId: number) => {
+        const preload = document.createElement("img");
+        const preloadReferrerPolicy = getImageReferrerPolicy(displaySource);
+        if (preloadReferrerPolicy) {
+          preload.referrerPolicy = preloadReferrerPolicy;
+        }
+        preload.onload = () => {
+          if (activeRequestId !== requestId) {
+            return;
+          }
+          image.src = displaySource;
+          displayReady = true;
+          setImagePhase("ready");
+        };
+        preload.onerror = () => {
+          if (activeRequestId !== requestId) {
+            return;
+          }
+          displayReady = false;
+          image.removeAttribute("src");
+          setImagePhase("failed");
+        };
+        preload.src = displaySource;
+      };
+
+      const renderNode = (attributes: Record<string, unknown>) => {
+        sizeControls.setActiveWidth(applyImageWidth(wrapper, attributes));
+        applyImageMeta(attributes);
+        const source = String(attributes.src ?? "");
+
+        // Width / alt-only updates must not tear down a successfully loaded image.
+        if (source === renderedSource && displayReady && image.getAttribute("src")) {
           return;
         }
 
+        clearRequest();
+        renderedSource = source;
+        displayReady = false;
         image.removeAttribute("src");
+        setImagePhase("loading");
+
         const activeRequestId = requestId;
+        const protectedSource = normalizeProtectedResourceSource(source, baseUrl);
+        if (!protectedSource) {
+          revealDisplaySource(resolveUrl(source, baseUrl), activeRequestId);
+          return;
+        }
+
         void loadResource(protectedSource)
           .then((dataUrl) => {
-            if (activeRequestId === requestId) {
-              image.src = dataUrl ?? resolveUrl(source, baseUrl);
+            if (activeRequestId !== requestId) {
+              return;
             }
+            // Do not fall back to an unauthenticated absolute URL — that 401s and
+            // briefly shows the broken-image icon before any error UI.
+            if (!dataUrl) {
+              setImagePhase("failed");
+              return;
+            }
+            revealDisplaySource(dataUrl, activeRequestId);
           })
           .catch(() => {
             if (activeRequestId === requestId) {
-              image.src = resolveUrl(source, baseUrl);
+              setImagePhase("failed");
             }
           });
       };
@@ -1269,7 +2653,7 @@ const createProtectedImageExtension = (
         },
         selectNode: () => {
           wrapper.classList.add("is-selected");
-          sizeControls.setVisible(true);
+          sizeControls.setVisible(!readOnly && displayReady);
         },
         deselectNode: () => {
           wrapper.classList.remove("is-selected");
@@ -1286,6 +2670,34 @@ const createProtectedImageExtension = (
 
 type TiptapEditor = NonNullable<ReturnType<typeof useEditor>>;
 type ImageUploadPlaceholderMatch = { nodeSize: number; pos: number };
+type AttachmentRange = { from: number; linkAttrs: Record<string, unknown>; to: number };
+
+const findMobileAttachmentRange = (editor: TiptapEditor, resourceId: string): AttachmentRange | null => {
+  let match: AttachmentRange | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return;
+    const resourceLink = node.marks.find((mark) =>
+      mark.type.name === "link" &&
+      typeof mark.attrs.href === "string" &&
+      getResourceIdFromUrl(mark.attrs.href) === resourceId
+    );
+    if (!resourceLink) return;
+    match = { from: pos, linkAttrs: resourceLink.attrs, to: pos + node.nodeSize };
+    return false;
+  });
+  return match;
+};
+
+const findMobileImageRange = (editor: TiptapEditor, resourceId: string): ImageUploadPlaceholderMatch | null => {
+  let match: ImageUploadPlaceholderMatch | null = null;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "image" && typeof node.attrs.src === "string" && getResourceIdFromUrl(node.attrs.src) === resourceId) {
+      match = { nodeSize: node.nodeSize, pos };
+      return false;
+    }
+  });
+  return match;
+};
 
 const findImageUploadPlaceholder = (
   editor: TiptapEditor,
@@ -1361,39 +2773,226 @@ const removeImageUploadPlaceholder = (editor: TiptapEditor, source: string) => {
   }).run();
 };
 
-const getEditorStyles = (theme: "light" | "dark") => `
-  :root { color-scheme: ${theme}; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }) => {
+  const bodyFontSize = MEMO_CONTENT_STYLE.body.fontSize;
+  const bodyLineHeight = MEMO_CONTENT_STYLE.body.lineHeight / MEMO_CONTENT_STYLE.body.fontSize;
+  const paragraphSpacing = MEMO_CONTENT_STYLE.body.paragraphSpacing;
+  return `
+  :root {
+    color-scheme: ${theme};
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    /* Match PC/Web memo body (MEMO_CONTENT_STYLE) so notes don't feel oversized on phone. */
+    --editor-body-font-size: ${bodyFontSize}px;
+    --editor-body-line-height: ${bodyLineHeight};
+    --editor-paragraph-spacing: ${paragraphSpacing}px;
+  }
   * { box-sizing: border-box; }
-  html, body, #root { width: 100%; height: 100%; margin: 0; background: ${theme === "dark" ? "#0f172a" : "#fff"}; }
-  body { overflow: hidden; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; }
-  .edgeever-editor-shell { display: flex; height: 100%; min-height: 100%; flex-direction: column; background: ${theme === "dark" ? "#0f172a" : "#fff"}; }
+  /* Cap layout to the WebView viewport. Wide tables/attachments must scroll
+     inside their own wrappers — never expand the page and clip on the right. */
+  html, body, #root {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+    background: ${theme === "dark" ? "#0f172a" : "#fff"};
+  }
+  html { font-size: var(--editor-body-font-size); }
+  body { overflow: hidden; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; font-size: 1rem; }
+  .edgeever-editor-shell {
+    position: relative;
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: 100%;
+    min-height: 100%;
+    flex-direction: column;
+    background: ${theme === "dark" ? "#0f172a" : "#fff"};
+    overflow: hidden;
+  }
+  .edgeever-viewer-shell { -webkit-user-select: text; user-select: text; }
   .edgeever-editor-toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; min-height: 38px; overflow-x: auto; padding: 6px 12px; border-block: 1px solid ${theme === "dark" ? "#334155" : "#f1f5f9"}; background: ${theme === "dark" ? "#0f172a" : "#fff"}; scrollbar-width: none; }
   .edgeever-editor-toolbar::-webkit-scrollbar { display: none; }
   .edgeever-editor-toolbar button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 36px; min-height: 32px; padding: 0; border: 1px solid transparent; border-radius: 999px; background: transparent; color: ${theme === "dark" ? "#cbd5e1" : "#64748b"}; }
   .edgeever-editor-toolbar button:active, .edgeever-editor-toolbar button.is-active { border-color: ${theme === "dark" ? "#166534" : "#bbf7d0"}; background: ${theme === "dark" ? "#14532d" : "#ecfdf5"}; color: ${theme === "dark" ? "#86efac" : "#047857"}; }
   .edgeever-editor-toolbar button:disabled { opacity: 0.38; }
-  .edgeever-editor-toolbar .edgeever-table-menu-trigger { gap: 6px; width: auto; padding-inline: 10px; font-size: 13px; font-weight: 700; }
-  .edgeever-table-menu-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; background: ${theme === "dark" ? "rgba(2, 6, 23, 0.62)" : "rgba(15, 23, 42, 0.22)"}; }
-  .edgeever-table-menu-sheet { width: 100%; border-radius: 18px 18px 0 0; padding: 8px 0 max(10px, env(safe-area-inset-bottom)); background: ${theme === "dark" ? "#1e293b" : "#fff"}; box-shadow: 0 -18px 45px rgba(15, 23, 42, 0.16); }
-  .edgeever-table-menu-handle { width: 38px; height: 4px; margin: 2px auto 8px; border-radius: 999px; background: #cbd5e1; }
-  .edgeever-table-menu-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid ${theme === "dark" ? "#334155" : "#f1f5f9"}; padding: 0 16px 10px; }
-  .edgeever-table-menu-header strong { color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; font-size: 16px; }
-  .edgeever-table-menu-header button { min-height: 32px; border: 0; border-radius: 999px; padding: 6px 10px; background: ${theme === "dark" ? "#334155" : "#f8fafc"}; color: ${theme === "dark" ? "#cbd5e1" : "#64748b"}; font: inherit; font-size: 14px; font-weight: 650; }
-  .edgeever-table-menu-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; }
-  .edgeever-table-menu-actions button { min-height: 48px; border: 0; border-radius: 10px; padding: 8px; background: ${theme === "dark" ? "#334155" : "#f8fafc"}; color: ${theme === "dark" ? "#e2e8f0" : "#334155"}; font: inherit; font-size: 15px; font-weight: 650; }
-  .edgeever-table-menu-actions button:active { background: ${theme === "dark" ? "#14532d" : "#ecfdf5"}; color: ${theme === "dark" ? "#86efac" : "#047857"}; }
-  .edgeever-table-menu-actions button:disabled { color: #94a3b8; opacity: 0.55; }
-  .edgeever-table-menu-actions button.is-destructive { background: ${theme === "dark" ? "#4c0519" : "#fff1f2"}; color: ${theme === "dark" ? "#fda4af" : "#be123c"}; }
-  .tiptap { min-height: 100%; outline: none; }
-  .edgeever-editor-shell > div:last-child { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-  .edgeever-editor-content { min-height: 100%; padding: 18px 12px 32px; font-size: 17px; line-height: 1.7; word-break: break-word; caret-color: #0f766e; }
+  .edgeever-editor-toolbar .edgeever-ai-toolbar-button { width: auto; gap: 4px; padding: 0 10px; border-color: ${theme === "dark" ? "#166534" : "#bbf7d0"}; background: ${theme === "dark" ? "#052e24" : "#ecfdf5"}; color: ${theme === "dark" ? "#6ee7b7" : "#047857"}; font-weight: 750; }
+  .edgeever-ai-selection-trigger { position: absolute; z-index: 18; display: inline-flex; min-width: 74px; min-height: 38px; align-items: center; justify-content: center; gap: 6px; padding: 0 13px; border: 1px solid ${theme === "dark" ? "#166534" : "#a7f3d0"}; border-radius: 999px; background: ${theme === "dark" ? "#052e24" : "#fff"}; color: ${theme === "dark" ? "#6ee7b7" : "#047857"}; box-shadow: 0 8px 24px rgb(2 44 34 / 20%); font-size: 14px; font-weight: 800; touch-action: manipulation; animation: edgeever-ai-selection-trigger-in 130ms ease-out; }
+  .edgeever-ai-selection-trigger:active { border-color: #16a06e; background: ${theme === "dark" ? "#0b3b2d" : "#ecfdf5"}; transform: scale(.97); }
+  .edgeever-ai-selection-trigger svg { width: 16px; height: 16px; }
+  @keyframes edgeever-ai-selection-trigger-in { from { opacity: 0; transform: translateY(4px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .edgeever-ai-selection-trigger { animation: none; } }
+  .tiptap { min-height: 100%; max-width: 100%; min-width: 0; outline: none; }
+  .edgeever-editor-scroll {
+    --edgeever-keyboard-inset: 0px;
+    min-height: 0;
+    min-width: 0;
+    flex: 1;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .edgeever-ai-selection-hint { position: absolute; z-index: 15; top: 64px; left: 50%; max-width: calc(100% - 32px); transform: translateX(-50%); padding: 9px 13px; border-radius: 999px; background: ${theme === "dark" ? "#1e293b" : "#0f172a"}; color: #fff; font-size: 13px; font-weight: 650; box-shadow: 0 8px 24px rgb(15 23 42 / 24%); }
+  .edgeever-ai-undo { position: absolute; z-index: 15; top: 64px; right: 14px; left: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px 9px 13px; border-radius: 10px; background: ${theme === "dark" ? "#1e293b" : "#0f172a"}; color: #fff; font-size: 13px; font-weight: 650; box-shadow: 0 8px 24px rgb(15 23 42 / 24%); }
+  .edgeever-ai-undo button { min-height: 32px; padding: 0 11px; border: 1px solid rgb(255 255 255 / 28%); border-radius: 8px; background: transparent; color: #6ee7b7; font: inherit; font-weight: 750; }
+  .edgeever-ai-panel { position: absolute; z-index: 20; inset: 0; display: flex; min-width: 0; flex-direction: column; background: ${theme === "dark" ? "#0f172a" : "#f8fafc"}; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; }
+  .edgeever-ai-panel button, .edgeever-ai-panel input, .edgeever-ai-panel textarea { font: inherit; }
+  .edgeever-ai-panel-header { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; min-height: 58px; padding: 10px 14px; border-bottom: 1px solid ${theme === "dark" ? "#334155" : "#e2e8f0"}; background: ${theme === "dark" ? "#111c18" : "#fff"}; }
+  .edgeever-ai-panel-header div { display: grid; min-width: 0; gap: 2px; }
+  .edgeever-ai-panel-header strong { font-size: 16px; }
+  .edgeever-ai-panel-header small { color: ${theme === "dark" ? "#94a3b8" : "#64748b"}; font-size: 12px; }
+  .edgeever-ai-panel-header > button { width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; font-size: 25px; }
+  .edgeever-ai-panel-body { display: grid; min-height: 0; flex: 1 1 auto; align-content: start; gap: 14px; overflow-y: auto; padding: 14px; }
+  .edgeever-ai-panel label, .edgeever-ai-picker-field { display: grid; gap: 6px; color: ${theme === "dark" ? "#e2e8f0" : "#334155"}; font-size: 13px; font-weight: 700; }
+  .edgeever-ai-panel input, .edgeever-ai-panel textarea { width: 100%; border: 1px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-radius: 9px; outline: none; background: ${theme === "dark" ? "#111c18" : "#fff"}; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; font-size: 15px; font-weight: 500; }
+  .edgeever-ai-panel input { min-height: 44px; padding: 0 11px; }
+  .edgeever-ai-panel textarea { min-height: 78px; resize: vertical; padding: 10px 11px; }
+  .edgeever-ai-panel input:focus, .edgeever-ai-panel textarea:focus { border-color: #16a06e; box-shadow: 0 0 0 2px rgb(22 160 110 / 14%); }
+  .edgeever-ai-picker-trigger { display: flex; width: 100%; min-height: 46px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 13px; border: 1px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-radius: 10px; outline: none; background: ${theme === "dark" ? "#111c18" : "#fff"}; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; text-align: left; font-size: 15px; font-weight: 550; }
+  .edgeever-ai-picker-trigger:focus-visible, .edgeever-ai-picker-trigger[aria-expanded="true"] { border-color: #16a06e; box-shadow: 0 0 0 2px rgb(22 160 110 / 14%); }
+  .edgeever-ai-picker-trigger > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .edgeever-ai-picker-chevron { flex: 0 0 auto; width: 9px; height: 9px; margin: -4px 2px 0 0; border-right: 2px solid ${theme === "dark" ? "#94a3b8" : "#64748b"}; border-bottom: 2px solid ${theme === "dark" ? "#94a3b8" : "#64748b"}; transform: rotate(45deg); }
+  .edgeever-ai-picker-backdrop { position: absolute; z-index: 40; inset: 0; display: flex; align-items: flex-end; background: rgb(2 6 23 / 48%); animation: edgeever-ai-picker-fade 150ms ease-out; }
+  .edgeever-ai-picker-sheet { display: flex; width: 100%; max-height: min(74%, 560px); min-height: 0; flex-direction: column; padding: 8px 12px max(12px, env(safe-area-inset-bottom)); border: 1px solid ${theme === "dark" ? "#33453d" : "#dbe4df"}; border-bottom: 0; border-radius: 22px 22px 0 0; background: ${theme === "dark" ? "#111c18" : "#fff"}; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; box-shadow: 0 -18px 48px rgb(2 6 23 / 24%); animation: edgeever-ai-picker-rise 180ms cubic-bezier(.2,.8,.2,1); }
+  .edgeever-ai-picker-handle { width: 38px; height: 4px; margin: 0 auto 5px; border-radius: 999px; background: ${theme === "dark" ? "#475569" : "#cbd5e1"}; }
+  .edgeever-ai-picker-header { display: flex; flex: 0 0 auto; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 4px 4px 8px; }
+  .edgeever-ai-picker-header strong { font-size: 17px; font-weight: 780; }
+  .edgeever-ai-picker-header button { width: 36px; height: 36px; padding: 0; border: 0; border-radius: 999px; background: ${theme === "dark" ? "#17251f" : "#f1f5f9"}; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; font-size: 24px; line-height: 1; }
+  .edgeever-ai-picker-options { min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .edgeever-ai-picker-options > button { display: flex; width: 100%; min-height: 50px; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 12px; border: 0; border-bottom: 1px solid ${theme === "dark" ? "#26382f" : "#edf2ef"}; border-radius: 9px; outline: none; background: transparent; color: ${theme === "dark" ? "#e2e8f0" : "#0f172a"}; text-align: left; font-size: 15px; font-weight: 550; }
+  .edgeever-ai-picker-options > button:last-child { border-bottom-color: transparent; }
+  .edgeever-ai-picker-options > button.is-selected { background: ${theme === "dark" ? "#0b3328" : "#ecfdf5"}; color: ${theme === "dark" ? "#6ee7b7" : "#047857"}; font-weight: 720; }
+  .edgeever-ai-picker-options > button:focus-visible { box-shadow: inset 0 0 0 2px #16a06e; }
+  .edgeever-ai-picker-check { display: grid; width: 20px; height: 20px; flex: 0 0 auto; place-items: center; border-radius: 999px; background: #16a06e; color: #fff; font-size: 13px; font-weight: 850; opacity: 0; }
+  .edgeever-ai-picker-options > button.is-selected .edgeever-ai-picker-check { opacity: 1; }
+  @keyframes edgeever-ai-picker-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes edgeever-ai-picker-rise { from { transform: translateY(20px); opacity: .7; } to { transform: translateY(0); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .edgeever-ai-picker-backdrop, .edgeever-ai-picker-sheet { animation: none; } }
+  .edgeever-ai-result-heading { display: flex; align-items: center; justify-content: space-between; color: ${theme === "dark" ? "#e2e8f0" : "#334155"}; font-size: 13px; font-weight: 750; }
+  .edgeever-ai-result-heading small { color: #16a06e; }
+  .edgeever-ai-result { min-height: 170px; max-height: min(42vh, 360px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 12px; border: 1px solid ${theme === "dark" ? "#334155" : "#dbe4df"}; border-radius: 10px; background: ${theme === "dark" ? "#17251f" : "#fff"}; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.55; }
+  .edgeever-ai-result > span { color: ${theme === "dark" ? "#94a3b8" : "#64748b"}; }
+  .edgeever-ai-refine-row { display: flex; gap: 8px; }
+  .edgeever-ai-refine-row input { min-width: 0; flex: 1; }
+  .edgeever-ai-refine-row button, .edgeever-ai-panel-footer button { min-height: 40px; padding: 0 12px; border: 1px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-radius: 9px; background: ${theme === "dark" ? "#111c18" : "#fff"}; color: ${theme === "dark" ? "#f8fafc" : "#0f172a"}; font-weight: 700; }
+  .edgeever-ai-panel button:disabled { opacity: 0.42; }
+  .edgeever-ai-error { margin: 0; color: ${theme === "dark" ? "#fda4af" : "#be123c"}; font-size: 13px; line-height: 1.45; }
+  .edgeever-ai-panel-footer { display: grid; flex: 0 0 auto; gap: 9px; padding: 10px 12px max(10px, env(safe-area-inset-bottom)); border-top: 1px solid ${theme === "dark" ? "#334155" : "#e2e8f0"}; background: ${theme === "dark" ? "#111c18" : "#fff"}; }
+  .edgeever-ai-panel-footer > div { display: flex; gap: 8px; }
+  .edgeever-ai-panel-footer > div button { min-width: 0; flex: 1; }
+  .edgeever-ai-panel-footer .is-primary { border-color: #16a06e; background: #16a06e; color: #fff; }
+  .edgeever-editor-content {
+    min-height: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 18px 12px calc(32px + var(--edgeever-keyboard-inset));
+    scroll-padding-bottom: calc(32px + var(--edgeever-keyboard-inset));
+    font-size: 1rem;
+    line-height: var(--editor-body-line-height);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    caret-color: ${options?.viewer ? "transparent" : "#0f766e"};
+  }
+  .edgeever-viewer-content { -webkit-user-select: text; user-select: text; cursor: text; }
+  .edgeever-search-match {
+    border-radius: 0.2rem;
+    background-color: rgb(254 240 138 / 0.8);
+    box-shadow: 0 0 0 1px rgb(234 179 8 / 0.25);
+  }
+  .edgeever-search-match-active {
+    background-color: rgb(251 191 36 / 0.9);
+    box-shadow: 0 0 0 2px rgb(217 119 6 / 0.45);
+  }
   .edgeever-editor-content > :first-child { margin-top: 0; }
+  .edgeever-editor-content p {
+    margin: 0 0 var(--editor-paragraph-spacing) 0;
+    padding: 0;
+    max-width: 100%;
+    font-size: 1rem;
+    line-height: var(--editor-body-line-height);
+  }
   .edgeever-editor-content p.is-editor-empty:first-child::before { float: left; height: 0; color: #94a3b8; content: attr(data-placeholder); pointer-events: none; }
-  .edgeever-editor-content h1, .edgeever-editor-content h2, .edgeever-editor-content h3 { line-height: 1.3; }
-  .edgeever-editor-content blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid #5eead4; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; }
-  .edgeever-editor-content pre { overflow-x: auto; border-radius: 10px; padding: 14px 90px 14px 14px; background: #0f172a; color: #e2e8f0; }
-  .edgeever-editor-content code { border-radius: 4px; padding: 2px 4px; background: ${theme === "dark" ? "#1e293b" : "#f1f5f9"}; }
-  .edgeever-editor-content pre code { padding: 0; background: transparent; }
+  .edgeever-editor-content h1,
+  .edgeever-editor-content h2,
+  .edgeever-editor-content h3 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+    font-weight: 800;
+  }
+  .edgeever-editor-content h1 { margin: 0.7em 0 0.4em; font-size: 1.6rem; }
+  .edgeever-editor-content h2 { margin: 0.85em 0 0.35em; font-size: 1.35rem; }
+  .edgeever-editor-content h3 { margin: 0.75em 0 0.3em; font-size: 1.15rem; }
+  .edgeever-editor-content ul[data-type="taskList"] { margin: 0 0 var(--editor-paragraph-spacing); padding-left: 0; list-style: none; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label { display: inline-flex; flex: 0 0 auto; align-items: center; margin-top: 3px; user-select: none; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label input { width: 18px; height: 18px; margin: 0; accent-color: #16a06e; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > div { min-width: 0; flex: 1 1 auto; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > div > p { margin-bottom: 0; }
+  .edgeever-editor-content ul[data-type="taskList"] ul[data-type="taskList"] { margin: 4px 0 0; padding-left: 24px; }
+  .edgeever-editor-content blockquote { margin-left: 0; max-width: 100%; padding-left: 14px; border-left: 3px solid #5eead4; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; }
+  .edgeever-editor-content pre { max-width: 100%; overflow-x: auto; border-radius: 10px; padding: 14px 90px 14px 14px; background: #0f172a; color: #e2e8f0; font-size: 0.9rem; }
+  .edgeever-editor-content code { border-radius: 4px; padding: 2px 4px; background: ${theme === "dark" ? "#1e293b" : "#f1f5f9"}; font-size: 0.9em; }
+  .edgeever-editor-content pre code { padding: 0; background: transparent; font-size: inherit; }
+  .edgeever-editor-content .tiptap-mathematics-render[data-type="block-math"] { max-width: 100%; margin: 16px 0; overflow-x: auto; overflow-y: hidden; padding: 4px 0; text-align: center; -webkit-overflow-scrolling: touch; }
+  .edgeever-editor-content .inline-math-error, .edgeever-editor-content .block-math-error { color: ${theme === "dark" ? "#fda4af" : "#be123c"}; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  /* External hyperlinks (match Web default ProseMirror). Attachment chips override below. */
+  .edgeever-editor-content a {
+    color: ${theme === "dark" ? "#86efac" : "#00751f"};
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: ${theme === "dark" ? "rgba(134, 239, 172, 0.45)" : "rgba(0, 117, 31, 0.45)"};
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .edgeever-editor-content a:active {
+    color: ${theme === "dark" ? "#4ade80" : "#00a82d"};
+    text-decoration-color: ${theme === "dark" ? "#4ade80" : "#00a82d"};
+  }
+  /* Compact attachment chips: still ≥48px touch height, less vertical bulk than 58px. */
+  .edgeever-editor-content a.edgeever-attachment-link, .edgeever-editor-content a[href*="/api/v1/resources/"] {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 48px;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+    border: 1px solid ${theme === "dark" ? "#334155" : "#cbd5e1"};
+    border-radius: 10px;
+    padding: 7px 10px;
+    background: ${theme === "dark" ? "#172033" : "#f8fafc"};
+    color: ${theme === "dark" ? "#f1f5f9" : "#1e293b"};
+    font-size: 0.93rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-decoration: none;
+    overflow: hidden;
+  }
+  .edgeever-editor-content a.edgeever-attachment-link::before, .edgeever-editor-content a[href*="/api/v1/resources/"]::before {
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: ${theme === "dark" ? "#134e4a" : "#ecfdf5"};
+    content: "📎";
+    font-size: 15px;
+  }
+  .edgeever-editor-content a.edgeever-attachment-link::after, .edgeever-editor-content a[href*="/api/v1/resources/"]::after {
+    margin-left: auto;
+    flex: 0 0 auto;
+    color: ${theme === "dark" ? "#94a3b8" : "#64748b"};
+    content: "⋯";
+    font-size: 18px;
+    font-weight: 700;
+  }
   .edgeever-code-block, .edgeever-mermaid-code-block { position: relative; margin: 18px 0; overflow: visible; background: transparent; }
   .edgeever-code-copy-button { position: absolute; top: 8px; right: 8px; z-index: 1; border: 1px solid ${theme === "dark" ? "#475569" : "#cbded1"}; border-radius: 6px; padding: 5px 8px; background: ${theme === "dark" ? "rgba(30, 41, 59, 0.94)" : "rgba(247, 251, 248, 0.94)"}; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; font: inherit; font-size: 12px; line-height: 1.35; }
   .edgeever-code-copy-button:active { border-color: #0f766e; color: ${theme === "dark" ? "#86efac" : "#0f766e"}; }
@@ -1407,11 +3006,85 @@ const getEditorStyles = (theme: "light" | "dark") => `
   .edgeever-mermaid-message { color: ${theme === "dark" ? "#94a3b8" : "#64748b"}; }
   .edgeever-mermaid-error { color: ${theme === "dark" ? "#fda4af" : "#be123c"}; }
   .edgeever-editor-content img { display: block; max-width: 100%; height: auto; margin: 14px auto; border-radius: 10px; }
-  .edgeever-editor-content .tableWrapper { --mobile-table-column-width: clamp(5.5rem, calc((100vw - 3rem) / 3), 14rem); width: 100%; max-width: 100%; overflow-x: auto; margin-top: 20px; margin-right: auto; margin-bottom: 20px; margin-left: 0; border: 1px solid ${theme === "dark" ? "#334155" : "#d8d8d8"}; border-radius: 2px; background: ${theme === "dark" ? "#0f172a" : "#fff"}; overscroll-behavior-inline: contain; scrollbar-color: rgba(100, 116, 139, 0.28) transparent; }
-  .edgeever-editor-content table { width: max-content; min-width: 100% !important; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-  .edgeever-editor-content table col { width: var(--mobile-table-column-width) !important; }
-  .edgeever-editor-content th, .edgeever-editor-content td { position: relative; width: var(--mobile-table-column-width); min-width: var(--mobile-table-column-width); border: 0; border-right: 1px solid ${theme === "dark" ? "#334155" : "#dedede"}; border-bottom: 1px solid ${theme === "dark" ? "#334155" : "#dedede"}; padding: 7px 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; line-height: 1.4; transition: background-color 120ms ease; }
-  .edgeever-editor-content th { background: ${theme === "dark" ? "#27303f" : "#f0f0f0"}; color: ${theme === "dark" ? "#f8fafc" : "#111827"}; font-size: 14px; font-weight: 700; }
+  /* Shared by preview + edit (same LocalTiptapEditor styles).
+     Prefer shrinking columns to the content box (≈4 equal cols on a phone) with
+     text wrap; when n * col-width still exceeds the wrapper, scroll inside
+     .tableWrapper only — never widen the page via 100vw / desktop col widths. */
+  .edgeever-editor-content .tableWrapper {
+    /* ~24% of wrapper → 4 cols fit; more cols overflow and scroll */
+    --mobile-table-column-width: clamp(4.25rem, 24cqi, 10rem);
+    container-type: inline-size;
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    margin-top: 20px;
+    margin-right: 0;
+    margin-bottom: 20px;
+    margin-left: 0;
+    border: 1px solid ${theme === "dark" ? "#334155" : "#d8d8d8"};
+    border-radius: 2px;
+    background: ${theme === "dark" ? "#0f172a" : "#fff"};
+    overscroll-behavior-inline: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+  }
+  .edgeever-editor-content .tableWrapper::-webkit-scrollbar {
+    height: 6px;
+  }
+  .edgeever-editor-content .tableWrapper::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(100, 116, 139, 0.4);
+  }
+  .edgeever-editor-content table {
+    width: max-content;
+    max-width: none;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+  }
+  /* Let compact tables use the full content width. The fallback on
+     .tableWrapper remains the minimum column budget for 5+ columns, so only
+     wider tables scroll. TipTap always renders one <col> per logical column. */
+  .edgeever-editor-content table:has(> colgroup > col:first-child:last-child) {
+    --mobile-table-column-width: 100cqi;
+  }
+  .edgeever-editor-content table:has(> colgroup > col:first-child:nth-last-child(2)) {
+    --mobile-table-column-width: 50cqi;
+  }
+  .edgeever-editor-content table:has(> colgroup > col:first-child:nth-last-child(3)) {
+    --mobile-table-column-width: calc(100cqi / 3);
+  }
+  .edgeever-editor-content table:has(> colgroup > col:first-child:nth-last-child(4)) {
+    --mobile-table-column-width: 25cqi;
+  }
+  /* Override TipTap/desktop col widths with the mobile equal-ish column budget. */
+  .edgeever-editor-content table col {
+    width: var(--mobile-table-column-width) !important;
+    min-width: var(--mobile-table-column-width) !important;
+  }
+  .edgeever-editor-content th, .edgeever-editor-content td {
+    position: relative;
+    width: var(--mobile-table-column-width);
+    min-width: var(--mobile-table-column-width);
+    max-width: var(--mobile-table-column-width);
+    border: 0;
+    border-right: 1px solid ${theme === "dark" ? "#334155" : "#dedede"};
+    border-bottom: 1px solid ${theme === "dark" ? "#334155" : "#dedede"};
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.4;
+    transition: background-color 120ms ease;
+  }
+  .edgeever-editor-content th { background: ${theme === "dark" ? "#27303f" : "#f0f0f0"}; color: ${theme === "dark" ? "#f8fafc" : "#111827"}; font-size: 0.93rem; font-weight: 700; }
   .edgeever-editor-content th:last-child, .edgeever-editor-content td:last-child { border-right: 0; }
   .edgeever-editor-content tr:last-child td { border-bottom: 0; }
   .edgeever-editor-content tbody tr:nth-child(even) td { background: ${theme === "dark" ? "#182235" : "#f8f8f8"}; }
@@ -1422,15 +3095,21 @@ const getEditorStyles = (theme: "light" | "dark") => `
   .edgeever-image-upload-preview { display: block; width: 100%; max-height: 360px; margin: 0 !important; object-fit: contain; border-radius: 10px; }
   .edgeever-image-upload-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: 10px; background: rgba(15, 23, 42, 0.38); color: #fff; font-size: 14px; font-weight: 600; text-shadow: 0 1px 2px rgba(15, 23, 42, 0.45); }
   .edgeever-image-node, .edgeever-image-upload-result { position: relative; display: block; max-width: 100%; margin: 14px auto; line-height: 0; }
-  .edgeever-image-node > img, .edgeever-image-upload-result > img { width: 100%; margin: 0; }
+  .edgeever-image-node.is-loading, .edgeever-image-node.is-failed { min-height: 120px; overflow: hidden; border-radius: 10px; background: ${theme === "dark" ? "#1e293b" : "#f1f5f9"}; }
+  .edgeever-image-loading { display: flex; min-height: 120px; align-items: center; justify-content: center; gap: 10px; padding: 16px; color: ${theme === "dark" ? "#94a3b8" : "#64748b"}; font-size: 13px; font-weight: 600; line-height: 1.3; }
+  .edgeever-image-loading[hidden] { display: none; }
+  .edgeever-image-loading-label { text-align: center; }
+  .edgeever-image-node > img, .edgeever-image-upload-result > img { display: block; width: 100%; margin: 0; border-radius: 10px; }
+  .edgeever-image-node > img[hidden] { display: none; }
   .edgeever-image-node.is-selected > img, .edgeever-image-upload-result.is-selected > img { outline: 2px solid #0f766e; outline-offset: 3px; }
-  .edgeever-image-size-controls { position: absolute; left: 50%; bottom: 8px; z-index: 2; display: flex; width: max-content; max-width: calc(100vw - 40px); align-items: center; gap: 3px; transform: translateX(-50%); border: 1px solid ${theme === "dark" ? "#475569" : "#bbf7d0"}; border-radius: 9px; padding: 4px; background: ${theme === "dark" ? "rgba(15, 23, 42, 0.96)" : "rgba(255, 255, 255, 0.96)"}; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2); line-height: 1.15; }
+  .edgeever-image-actions { position: absolute; right: 8px; bottom: 8px; z-index: 3; display: inline-flex; width: 42px; height: 42px; appearance: none; align-items: center; justify-content: center; border: 1px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-radius: 999px; background: ${theme === "dark" ? "rgba(15, 23, 42, 0.9)" : "rgba(255, 255, 255, 0.92)"}; color: ${theme === "dark" ? "#e2e8f0" : "#334155"}; font-size: 24px; font-weight: 700; line-height: 1; box-shadow: 0 3px 12px rgba(15, 23, 42, 0.2); }
+  .edgeever-image-actions[hidden] { display: none; }
+  .edgeever-image-size-controls { position: absolute; top: 8px; left: 50%; z-index: 2; display: flex; width: max-content; max-width: calc(100vw - 40px); align-items: center; gap: 3px; transform: translateX(-50%); border: 1px solid ${theme === "dark" ? "#475569" : "#bbf7d0"}; border-radius: 9px; padding: 4px; background: ${theme === "dark" ? "rgba(15, 23, 42, 0.96)" : "rgba(255, 255, 255, 0.96)"}; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2); line-height: 1.15; }
   .edgeever-image-size-controls[hidden] { display: none; }
-  .edgeever-image-size-button { display: inline-flex; min-width: 52px; min-height: 44px; appearance: none; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; border-radius: 7px; padding: 4px 7px; background: transparent; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; font: inherit; font-size: 12px; font-weight: 700; }
+  .edgeever-image-size-button { display: inline-flex; min-width: 52px; min-height: 38px; appearance: none; align-items: center; justify-content: center; border: 0; border-radius: 7px; padding: 4px 7px; background: transparent; color: ${theme === "dark" ? "#cbd5e1" : "#475569"}; font: inherit; font-size: 12px; font-weight: 700; }
   .edgeever-image-size-button.is-active { background: ${theme === "dark" ? "#134e4a" : "#ccfbf1"}; color: ${theme === "dark" ? "#99f6e4" : "#0f766e"}; }
-  .edgeever-image-size-percent { color: ${theme === "dark" ? "#94a3b8" : "#94a3b8"}; font-size: 10px; font-weight: 600; }
-  .edgeever-image-size-button.is-active .edgeever-image-size-percent { color: inherit; }
   .edgeever-image-upload-spinner { width: 18px; height: 18px; border: 2px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-top-color: #0f766e; border-radius: 999px; animation: edgeever-image-upload-spin 0.8s linear infinite; }
   @keyframes edgeever-image-upload-spin { to { transform: rotate(360deg); } }
   .edgeever-editor-content hr { margin: 24px 0; border: 0; border-top: 1px solid #cbd5e1; }
 `;
+};

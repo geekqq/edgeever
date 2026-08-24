@@ -1,6 +1,6 @@
 # EdgeEver Mobile Builds
 
-EdgeEver Mobile is built with Expo and React Native. Daily Android test packages are built directly on GitHub Actions, without using EAS Build quota.
+EdgeEver Mobile is built with Expo and React Native. Main-branch Android packages are built directly on GitHub Actions, without using EAS Build quota.
 
 ## App Updates
 
@@ -15,22 +15,32 @@ bunx eas-cli update --channel production --environment production --message "Des
 
 The update runtime uses the app-version policy. Any native dependency, Expo SDK, native module, or native configuration change requires incrementing `expo.version` and shipping a new store build before publishing code that depends on that native change. EAS Update does not replace Google Play or App Store updates for native binaries.
 
-## Android Debug APK
+## Main-Branch Android APK
 
-The `Build EdgeEver Mobile` workflow runs on GitHub Actions and produces a debug APK artifact.
+The `Build EdgeEver Mobile` workflow runs on GitHub Actions and produces a
+fast arm64 APK after mobile changes land on `main`. This APK uses the same
+pinned production signing certificate as formal GitHub Release APKs. The fast
+build only disables R8, resource shrinking, and PNG crunching; it must never
+fall back to `debug.keystore`.
 
 It runs:
 
 ```sh
 bun install --frozen-lockfile
 bun run typecheck:mobile
-cd apps/mobile
-bunx expo prebuild --platform android --non-interactive --clean
-cd android
-./gradlew assembleDebug
+bun run build:android:fast
 ```
 
-The APK is uploaded as a GitHub Actions artifact named `edgeever-android-debug-apk`.
+The APK is uploaded as a GitHub Actions artifact named
+`edgeever-android-main-apk`. If the stable signing credentials are unavailable,
+the workflow fails and does not upload an APK with a different signer.
+
+For a local fast build, load the same signing environment used for release
+builds:
+
+```sh
+bun run build:android:fast:local
+```
 
 ## Release Builds
 
@@ -42,9 +52,37 @@ Every formal GitHub Release must include a directly installable APK. Build the p
 bun run build:android:apk:local
 ```
 
-This produces `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`. Verify its application version, signer, and SHA-256 before uploading it to the matching GitHub Release. Additional ABIs should only be published for an explicit compatibility need; the Play AAB continues to include all supported architectures. A release whose audited change range affects mobile runtime code, shared code used by mobile, mobile dependencies, native configuration, or APK build tooling must rebuild the APK from that release commit.
+This produces `apps/mobile/android/app/build/outputs/apk/release/app-release.apk`.
+Before upload, automation requires exactly one signer and pins its certificate
+SHA-256 to
+`22bf52a9501c89020f5acc966960152c826bfa64f31e578e858d088f8cd75d87`.
+Any other signer fails the build. Verify the application version and APK
+SHA-256 as well. Additional ABIs should only be published for an explicit
+compatibility need. The Play AAB is also intentionally limited to
+`arm64-v8a`, so its Play-signed universal APK remains a single-ABI download.
+A release whose audited change range affects mobile runtime
+code, shared code used by mobile, mobile dependencies, native configuration,
+APK build tooling, or signer verification must rebuild the APK from that
+release commit.
 
 If the audited change range does not affect the mobile binary, the most recent compatible, verified APK may be attached again without rebuilding. Keep its original versioned filename and checksum, and state the source release explicitly; never rename an older binary to the current release version.
+
+The release workflow performs this audit automatically and verifies the pinned
+signer for both newly built and reused APKs. Web-only releases use an Ubuntu
+planning job and copy the single verified `arm64-v8a` APK from the previous
+formal Release. The self-hosted Android runner is scheduled only when the
+audited range includes mobile runtime code, shared mobile packages,
+dependencies, native configuration, Android build tooling, or signer
+verification.
+
+This locally signed APK prepares the Draft without requiring a Google Play
+submission. After the matching AAB is delivered, the store-delivery workflow
+downloads Google Play's signed universal APK and replaces the GitHub Release
+asset under the established filename. Because the uploaded AAB contains only
+`arm64-v8a`, the Play-generated APK also remains arm64-only. Publishing the
+Play-signed APK lets Play and GitHub installations update each other without
+uninstalling the app. The workflow pins and verifies the Play app-signing
+certificate before replacing the asset.
 
 ### Recommended local Play build
 
@@ -72,34 +110,29 @@ apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
 apps/mobile/android/app/build/outputs/mapping/release/mapping.txt
 ```
 
-The command builds all Play-supported Android architectures by default,
-verifies the AAB signature, and requires a non-empty R8 mapping file. Keep an
-encrypted backup of `signing.env` and the upload keystore outside the
-repository. Do not replace or regenerate the upload key for an existing Play
-app unless the key reset has been completed in Play Console.
+The command builds `arm64-v8a` by default, verifies the AAB signature, and
+requires a non-empty R8 mapping file. This keeps the Play-generated universal
+APK suitable for the arm64 GitHub Release asset instead of bundling unused
+32-bit ARM and x86 native libraries. Keep an encrypted backup of `signing.env`
+and the upload keystore outside the repository. Do not replace or regenerate
+the upload key for an existing Play app unless the key reset has been completed
+in Play Console.
 
 Set `EDGE_EVER_ANDROID_ENV_FILE` to use a different secure environment file.
 
-### GitHub Actions fallback
+### Automated store delivery
 
-Run the workflow manually to build a signed Android App Bundle. The workflow
-uses the following GitHub Actions secrets:
+The GitHub Release workflow never builds or uploads a Play bundle. After a
+formal Release that contains mobile changes is published, use the separate
+store-delivery workflow. It builds a signed AAB from the immutable Release tag,
+preserves the AAB and R8 mapping as Actions artifacts, and uploads the bundle
+through EAS Submit. It then replaces the GitHub APK with the Play-signed
+universal APK. See [Mobile Store Delivery](store-delivery.md).
 
-```text
-ANDROID_KEYSTORE_BASE64
-ANDROID_KEYSTORE_PASSWORD
-ANDROID_KEY_ALIAS
-ANDROID_KEY_PASSWORD
-```
-
-The resulting app bundle is uploaded as `edgeever-android-release-aab`. Release
-builds enable R8 code minification and resource shrinking, and the matching
-deobfuscation file is uploaded as `edgeever-android-release-mapping`. Upload
-that `mapping.txt` alongside the same app bundle version in Google Play Console
-so production crash and ANR stack traces can be decoded correctly. The upload
-keystore is only used to prove ownership when uploading bundles; Google Play
-App Signing manages the app signing key delivered to users. Keep an encrypted
-backup of the upload keystore and its credentials outside the repository.
+The upload keystore is only used to prove ownership when uploading bundles;
+Google Play App Signing manages the app signing key delivered to users. Keep an
+encrypted backup of the upload keystore and its credentials outside the
+repository.
 
 ### iOS App Store build
 
@@ -116,11 +149,12 @@ bunx eas-cli build --platform ios --profile production
 
 The first command requires the Apple Account Holder to authenticate and may
 prompt for two-factor authentication. The production profile automatically
-increments the App Store build number. After the build has succeeded, submit
-the selected build with `bunx eas-cli submit --platform ios --profile
-production`, or configure `submit.production.ios.ascAppId` and use
-`--auto-submit` on subsequent releases. Apple credentials, App Store Connect
-API keys, certificates, and provisioning profiles must never be committed.
+increments the App Store build number. Routine delivery should use the separate
+store-delivery workflow, which builds from an immutable formal Release tag,
+uploads to App Store Connect, and submits that exact build to App Review.
+Approved builds are released automatically. Apple credentials, App Store
+Connect API keys, certificates, and provisioning profiles must never be
+committed.
 
 ## EAS
 

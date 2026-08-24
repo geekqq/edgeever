@@ -1,4 +1,6 @@
-export const STANDALONE_MOBILE_EDITOR_PATH = "/mobile-edit.html";
+import { getAppEntryPath, getAppPagePath } from "@/lib/app-page-path";
+
+export const STANDALONE_MOBILE_EDITOR_PATH = getAppPagePath("mobile-edit.html", import.meta.env.BASE_URL);
 export const MOBILE_EDITOR_RETURN_PARAM = "mobileEditorReturn";
 const STANDALONE_MOBILE_EDITOR_MEMO_KEY = "edgeever-standalone-mobile-editor-memo-id";
 const STANDALONE_MOBILE_EDITOR_RETURN_KEY = "edgeever-standalone-mobile-editor-return-memo-id";
@@ -13,12 +15,22 @@ export type MobileEditorReturnPreview = {
   updatedAt: string;
 };
 
+// The standalone web editor opens in a separate document and creates a server
+// edit session immediately, so it must never receive a local-first temporary ID.
+export const requiresRemoteMemoForStandaloneMobileEditor = ({
+  mobileViewport,
+  desktopRuntime,
+}: {
+  mobileViewport: boolean;
+  desktopRuntime: boolean;
+}) => mobileViewport && !desktopRuntime;
+
 export const getStandaloneMobileEditorReturnPath = (memoId: string) => {
   const params = new URLSearchParams({
     [MOBILE_EDITOR_RETURN_PARAM]: memoId,
   });
 
-  return `/?${params.toString()}`;
+  return `${getAppEntryPath(import.meta.env.BASE_URL)}?${params.toString()}`;
 };
 
 export const getStandaloneMobileEditorHref = (memoId: string, returnTo = getStandaloneMobileEditorReturnPath(memoId)) => {

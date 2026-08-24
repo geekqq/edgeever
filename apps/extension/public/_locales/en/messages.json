@@ -12,10 +12,10 @@
     "message": "Web Clipper"
   },
   "popupDescription": {
-    "message": "Save the current webpage or selected content to your EdgeEver."
+    "message": "Clip the current webpage or selected content to your EdgeEver."
   },
   "saveCurrentPage": {
-    "message": "Save current page"
+    "message": "Clip current page"
   },
   "pluginSettings": {
     "message": "Extension settings"
@@ -35,6 +35,60 @@
   "optionsTitle": {
     "message": "EdgeEver Web Clipper settings"
   },
+  "diagnosticsTitle": {
+    "message": "About & diagnostics"
+  },
+  "diagnosticsDescription": {
+    "message": "View basic extension, browser, system, and connection information. API tokens are never included."
+  },
+  "extensionVersion": {
+    "message": "Extension version"
+  },
+  "manifestVersion": {
+    "message": "Manifest version"
+  },
+  "browserVersion": {
+    "message": "Browser"
+  },
+  "systemVersion": {
+    "message": "System"
+  },
+  "extensionId": {
+    "message": "Extension ID"
+  },
+  "instanceOrigin": {
+    "message": "Instance origin"
+  },
+  "instancePermission": {
+    "message": "Instance permission"
+  },
+  "copyDiagnostics": {
+    "message": "Copy diagnostics"
+  },
+  "diagnosticsCopied": {
+    "message": "Diagnostics copied."
+  },
+  "diagnosticsCopyFailed": {
+    "message": "Copy failed. Check the browser clipboard permission."
+  },
+  "permissionGranted": {
+    "message": "Granted"
+  },
+  "permissionNotGranted": {
+    "message": "Not granted"
+  },
+  "permissionNotConfigured": {
+    "message": "Instance not configured"
+  },
+  "notConfigured": {
+    "message": "Not configured"
+  },
+  "invalidInstanceAddress": {
+    "message": "Invalid address"
+  },
+  "unknownValue": {
+    "message": "Unknown"
+  },
   "instanceAddress": {
     "message": "EdgeEver instance URL"
   },
@@ -52,6 +106,12 @@
   },
   "saveSettings": {
     "message": "Save settings"
+  },
+  "projectAndSource": {
+    "message": "GitHub project & source"
+  },
+  "reportIssue": {
+    "message": "Report an issue"
   },
   "privacyPolicy": {
     "message": "Privacy policy"
@@ -106,7 +166,32 @@
     "message": "Could not find the current page."
   },
   "captureTimeout": {
-    "message": "Page extraction timed out. Please try again."
+    "message": "Page extraction did not finish within 15 seconds. The page may be large or still loading; refresh it and try again."
+  },
+  "pageAccessDenied": {
+    "message": "The extension cannot read this page. Browser internal pages, extension stores, and restricted pages cannot be captured."
+  },
+  "captureScriptFailed": {
+    "message": "The page extraction script failed: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "captureUnknownError": {
+    "message": "No further details were provided"
+  },
+  "instanceNetworkFailed": {
+    "message": "Could not connect to the EdgeEver instance. Check the instance URL, network connection, and CORS settings."
+  },
+  "saveFailedWithReason": {
+    "message": "Could not save to EdgeEver: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
   },
   "emptyPageContent": {
     "message": "(No readable content was found on this page)"

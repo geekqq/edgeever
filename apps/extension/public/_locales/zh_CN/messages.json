@@ -12,10 +12,10 @@
     "message": "网页剪藏"
   },
   "popupDescription": {
-    "message": "保存当前网页或选中的内容到你的 EdgeEver。"
+    "message": "剪藏当前网页或选中的内容到你的 EdgeEver。"
   },
   "saveCurrentPage": {
-    "message": "保存当前网页"
+    "message": "剪藏当前网页"
   },
   "pluginSettings": {
     "message": "插件设置"
@@ -35,6 +35,60 @@
   "optionsTitle": {
     "message": "EdgeEver Web Clipper 设置"
   },
+  "diagnosticsTitle": {
+    "message": "关于与诊断信息"
+  },
+  "diagnosticsDescription": {
+    "message": "查看插件、浏览器、系统和连接信息。不会包含 API Token。"
+  },
+  "extensionVersion": {
+    "message": "插件版本"
+  },
+  "manifestVersion": {
+    "message": "Manifest 版本"
+  },
+  "browserVersion": {
+    "message": "浏览器"
+  },
+  "systemVersion": {
+    "message": "系统"
+  },
+  "extensionId": {
+    "message": "插件 ID"
+  },
+  "instanceOrigin": {
+    "message": "实例 Origin"
+  },
+  "instancePermission": {
+    "message": "实例访问权限"
+  },
+  "copyDiagnostics": {
+    "message": "复制诊断信息"
+  },
+  "diagnosticsCopied": {
+    "message": "诊断信息已复制。"
+  },
+  "diagnosticsCopyFailed": {
+    "message": "复制失败，请检查浏览器剪贴板权限。"
+  },
+  "permissionGranted": {
+    "message": "已授权"
+  },
+  "permissionNotGranted": {
+    "message": "未授权"
+  },
+  "permissionNotConfigured": {
+    "message": "未配置实例"
+  },
+  "notConfigured": {
+    "message": "未配置"
+  },
+  "invalidInstanceAddress": {
+    "message": "地址无效"
+  },
+  "unknownValue": {
+    "message": "未知"
+  },
   "instanceAddress": {
     "message": "EdgeEver 实例地址"
   },
@@ -52,6 +106,12 @@
   },
   "saveSettings": {
     "message": "保存设置"
+  },
+  "projectAndSource": {
+    "message": "GitHub 项目与源码"
+  },
+  "reportIssue": {
+    "message": "反馈问题"
   },
   "privacyPolicy": {
     "message": "隐私政策"
@@ -106,7 +166,32 @@
     "message": "找不到当前页面。"
   },
   "captureTimeout": {
-    "message": "网页内容提取超时，请重试。"
+    "message": "网页内容提取在 15 秒内未完成，页面可能过大或仍在加载。请刷新页面后重试。"
+  },
+  "pageAccessDenied": {
+    "message": "插件无法读取此页面。请确认当前不是浏览器内置页、扩展商店页或受限页面。"
+  },
+  "captureScriptFailed": {
+    "message": "网页提取脚本执行失败：$DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "captureUnknownError": {
+    "message": "未返回具体错误"
+  },
+  "instanceNetworkFailed": {
+    "message": "无法连接 EdgeEver 实例。请检查实例地址、网络连接和跨域设置。"
+  },
+  "saveFailedWithReason": {
+    "message": "保存到 EdgeEver 失败：$DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
   },
   "emptyPageContent": {
     "message": "（网页没有可提取的正文内容）"

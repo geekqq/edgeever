@@ -31,14 +31,24 @@ fi
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 export NODE_ENV="${NODE_ENV:-production}"
 
+run_timed() {
+  local label="$1"
+  shift
+  local started_at=$SECONDS
+
+  echo "[$(date '+%H:%M:%S')] 开始：${label}"
+  "$@"
+  echo "[$(date '+%H:%M:%S')] 完成：${label}（$((SECONDS - started_at)) 秒）"
+}
+
 if [[ -z "$ANDROID_SDK_ROOT" ]]; then
   echo "未找到 Android SDK，请设置 ANDROID_HOME 或 ANDROID_SDK_ROOT。" >&2
   exit 1
 fi
 
 cd "$PROJECT_ROOT"
-bun install --frozen-lockfile
-bun run prepare:mobile:icons
+run_timed "安装 JavaScript 依赖" bun install --frozen-lockfile
+run_timed "准备移动端图标" bun run prepare:mobile:icons
 
 PREBUILD_FINGERPRINT="$({
   shasum \
@@ -53,8 +63,21 @@ PREVIOUS_FINGERPRINT="$(test -f "$PREBUILD_STAMP" && cat "$PREBUILD_STAMP" || tr
 if [[ ! -x "$ANDROID_DIR/gradlew" || "$PREBUILD_FINGERPRINT" != "$PREVIOUS_FINGERPRINT" ]]; then
   echo "更新 Android 原生工程（保留已有编译缓存）..."
   cd "$MOBILE_DIR"
-  bunx expo prebuild --platform android
+  run_timed "生成 Android 原生工程" bunx expo prebuild --platform android
   printf '%s' "$PREBUILD_FINGERPRINT" > "$PREBUILD_STAMP"
+else
+  echo "跳过 Android prebuild：原生配置未变化。"
+fi
+
+ANDROID_MANIFEST="$ANDROID_DIR/app/src/main/AndroidManifest.xml"
+if [[ "$MODE" == "play" ]]; then
+  run_timed "移除 Play 不需要的侧载安装权限" \
+    node "$PROJECT_ROOT/scripts/configure-android-package-permissions.mjs" \
+    "$ANDROID_MANIFEST" play
+else
+  run_timed "保留 APK 自更新所需的安装权限" \
+    node "$PROJECT_ROOT/scripts/configure-android-package-permissions.mjs" \
+    "$ANDROID_MANIFEST" sideload
 fi
 
 cd "$ANDROID_DIR"
@@ -65,31 +88,42 @@ COMMON_ARGS=(
   -Dorg.gradle.jvmargs=-Xmx6g\ -XX:MaxMetaspaceSize=1g\ -Dfile.encoding=UTF-8
 )
 
-if [[ "$MODE" == "fast" ]]; then
-  echo "构建 arm64 真机测试 Release APK..."
-  ./gradlew assembleRelease \
-    "${COMMON_ARGS[@]}" \
-    -PreactNativeArchitectures=arm64-v8a \
-    -Pandroid.injected.signing.store.file="$ANDROID_DIR/app/debug.keystore" \
-    -Pandroid.injected.signing.store.password=android \
-    -Pandroid.injected.signing.key.alias=androiddebugkey \
-    -Pandroid.injected.signing.key.password=android
-  echo "完成: $ANDROID_DIR/app/build/outputs/apk/release/app-release.apk"
-  exit 0
-fi
-
 : "${ANDROID_KEYSTORE_FILE:?请设置 ANDROID_KEYSTORE_FILE（本地上传密钥路径）}"
 : "${ANDROID_KEYSTORE_PASSWORD:?请设置 ANDROID_KEYSTORE_PASSWORD}"
 : "${ANDROID_KEY_ALIAS:?请设置 ANDROID_KEY_ALIAS}"
 : "${ANDROID_KEY_PASSWORD:?请设置 ANDROID_KEY_PASSWORD}"
 
-PLAY_ARCHS="${EDGE_EVER_ANDROID_ARCHS:-armeabi-v7a,arm64-v8a,x86,x86_64}"
+PLAY_ARCHS="${EDGE_EVER_ANDROID_PLAY_ARCHS:-arm64-v8a}"
 APK_ARCHS="${EDGE_EVER_ANDROID_APK_ARCHS:-arm64-v8a}"
 KEYSTORE_FILE="$(cd "$(dirname "$ANDROID_KEYSTORE_FILE")" && pwd)/$(basename "$ANDROID_KEYSTORE_FILE")"
+APK_PATH="$ANDROID_DIR/app/build/outputs/apk/release/app-release.apk"
+APKSIGNER_PATH="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
+
+if [[ "$MODE" == "fast" ]]; then
+  echo "构建生产签名 arm64 快速 APK（关闭 R8、资源压缩和 PNG crunch）..."
+  run_timed "Gradle 快速 APK 构建" ./gradlew assembleRelease \
+    "${COMMON_ARGS[@]}" \
+    -PreactNativeArchitectures=arm64-v8a \
+    -Pandroid.enableMinifyInReleaseBuilds=false \
+    -Pandroid.enableShrinkResourcesInReleaseBuilds=false \
+    -Pandroid.enablePngCrunchInReleaseBuilds=false \
+    -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
+    -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+    -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+    -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD" \
+    -Pandroid.injected.signing.store.type=PKCS12
+  test -s "$APK_PATH"
+  test -x "$APKSIGNER_PATH"
+  run_timed "校验 APK 固定签名" \
+    node "$PROJECT_ROOT/scripts/verify-android-apk-signature.mjs" \
+    "$APK_PATH" "$APKSIGNER_PATH"
+  echo "完成: $APK_PATH"
+  exit 0
+fi
 
 if [[ "$MODE" == "apk" ]]; then
   echo "构建生产签名 APK（${APK_ARCHS}）..."
-  ./gradlew assembleRelease \
+  run_timed "Gradle 生产 APK 构建" ./gradlew assembleRelease \
     "${COMMON_ARGS[@]}" \
     -PreactNativeArchitectures="$APK_ARCHS" \
     -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
@@ -97,21 +131,21 @@ if [[ "$MODE" == "apk" ]]; then
     -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
     -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD" \
     -Pandroid.injected.signing.store.type=PKCS12
-  APK_PATH="$ANDROID_DIR/app/build/outputs/apk/release/app-release.apk"
-  APKSIGNER_PATH="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
   AAPT2_PATH="$ANDROID_SDK_ROOT/build-tools/36.0.0/aapt2"
   test -s "$APK_PATH"
   test -x "$APKSIGNER_PATH"
   test -x "$AAPT2_PATH"
-  "$APKSIGNER_PATH" verify --verbose "$APK_PATH"
-  "$AAPT2_PATH" dump badging "$APK_PATH" | sed -n '1p'
-  shasum -a 256 "$APK_PATH"
+  run_timed "校验 APK 固定签名" \
+    node "$PROJECT_ROOT/scripts/verify-android-apk-signature.mjs" \
+    "$APK_PATH" "$APKSIGNER_PATH"
+  run_timed "读取 APK 信息" bash -c '"$1" dump badging "$2" | sed -n "1p"' _ "$AAPT2_PATH" "$APK_PATH"
+  run_timed "计算 APK SHA-256" shasum -a 256 "$APK_PATH"
   echo "完成: $APK_PATH"
   exit 0
 fi
 
 echo "构建 Play 签名 AAB（${PLAY_ARCHS}）..."
-./gradlew bundleRelease \
+run_timed "Gradle 生产 AAB 构建" ./gradlew bundleRelease \
   "${COMMON_ARGS[@]}" \
   -PreactNativeArchitectures="$PLAY_ARCHS" \
   -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
@@ -120,7 +154,20 @@ echo "构建 Play 签名 AAB（${PLAY_ARCHS}）..."
   -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD" \
   -Pandroid.injected.signing.store.type=PKCS12
 
-jarsigner -verify app/build/outputs/bundle/release/app-release.aab >/dev/null
+AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
+PACKAGED_MANIFEST="app/build/intermediates/packaged_manifests/release/processReleaseManifestForPackage/AndroidManifest.xml"
+test -s "$PACKAGED_MANIFEST"
+if grep -q "android.permission.REQUEST_INSTALL_PACKAGES" "$PACKAGED_MANIFEST"; then
+  echo "Play AAB 的最终合并清单仍包含 REQUEST_INSTALL_PACKAGES，停止发布。" >&2
+  exit 1
+fi
+ACTUAL_PLAY_ARCHS="$(unzip -Z1 "$AAB_PATH" | sed -n 's#^base/lib/\([^/]*\)/.*#\1#p' | sort -u | paste -sd, -)"
+if [[ "$ACTUAL_PLAY_ARCHS" != "$PLAY_ARCHS" ]]; then
+  echo "AAB 架构不符合预期：期望 ${PLAY_ARCHS}，实际 ${ACTUAL_PLAY_ARCHS:-无原生库}。" >&2
+  exit 1
+fi
+
+run_timed "校验 AAB 签名" jarsigner -verify "$AAB_PATH"
 test -s app/build/outputs/mapping/release/mapping.txt
-echo "完成: $ANDROID_DIR/app/build/outputs/bundle/release/app-release.aab"
+echo "完成: $ANDROID_DIR/$AAB_PATH"
 echo "反混淆文件: $ANDROID_DIR/app/build/outputs/mapping/release/mapping.txt"

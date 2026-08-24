@@ -67,6 +67,240 @@
         }
       }
     },
+    "/api/v1/ai/settings": {
+      "get": {
+        "summary": "List AI providers, their models, and the workspace default model",
+        "responses": {
+          "200": {
+            "description": "AI settings with all API keys omitted",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AiSettings" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/providers": {
+      "post": {
+        "summary": "Add an AI provider service",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiProviderCreateInput" } } }
+        },
+        "responses": {
+          "201": { "description": "Provider created" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/providers/{providerConfigId}": {
+      "parameters": [{ "name": "providerConfigId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "put": {
+        "summary": "Update or enable/disable an AI provider service",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiProviderUpdateInput" } } } },
+        "responses": {
+          "200": { "description": "Provider updated" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "summary": "Delete an AI provider and all of its models",
+        "responses": {
+          "200": { "description": "Provider deleted" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/providers/{providerConfigId}/test": {
+      "post": {
+        "summary": "Test a saved AI provider with a model ID",
+        "parameters": [{ "name": "providerConfigId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "modelId": { "type": "string", "minLength": 1, "maxLength": 200 } }, "required": ["modelId"] } } }
+        },
+        "responses": {
+          "200": { "description": "The model endpoint responded successfully" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/providers/{providerConfigId}/discover-models": {
+      "post": {
+        "summary": "Discover models exposed by a saved provider service",
+        "parameters": [{ "name": "providerConfigId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Discovered models" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/providers/{providerConfigId}/models": {
+      "post": {
+        "summary": "Add a model to an AI provider service",
+        "parameters": [{ "name": "providerConfigId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiModelCreateInput" } } } },
+        "responses": {
+          "201": { "description": "Model added" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/providers/{providerConfigId}/models/{modelConfigId}": {
+      "delete": {
+        "summary": "Remove a model from an AI provider service",
+        "parameters": [
+          { "name": "providerConfigId", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "modelConfigId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Model removed" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/default-model": {
+      "put": {
+        "summary": "Choose or clear the workspace default AI model",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "modelConfigId": { "type": ["string", "null"] } }, "required": ["modelConfigId"] } } } },
+        "responses": {
+          "200": { "description": "Default model updated" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/generate": {
+      "post": {
+        "summary": "Run a note AI action using the current workspace model",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": { "type": "string", "enum": ["summarize", "extract-key-points", "extract-todos", "rewrite-proofread", "translate", "improve-writing", "fix-spelling-grammar", "make-shorter", "make-longer", "simplify-language", "change-tone", "continue-writing", "custom"] },
+                  "promptId": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Saved prompt to resolve inside the authenticated workspace" },
+                  "locale": { "type": "string", "maxLength": 35 },
+                  "title": { "type": "string", "maxLength": 160 },
+                  "contentMarkdown": { "type": "string", "maxLength": 300000 },
+                  "stream": { "type": "boolean", "default": false, "description": "Stream normalized text deltas when enabled; disabled by default for lower Worker CPU usage" },
+                  "targetLanguage": { "type": "string", "enum": ["en", "zh-CN", "zh-TW", "ja", "ko", "es", "fr", "de", "pt"], "description": "Required when the action or selected prompt requests a target language" },
+                  "tone": { "type": "string", "enum": ["professional", "friendly", "casual", "direct"] },
+                  "instruction": { "type": "string", "minLength": 1, "maxLength": 2000, "description": "Freeform instruction; ignored when promptId is supplied" }
+                },
+                "required": ["action", "title", "contentMarkdown"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-sent events containing start, text-delta, finish, or error events",
+            "content": { "text/event-stream": { "schema": { "type": "string" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/prompts": {
+      "get": {
+        "summary": "List the current workspace prompt library",
+        "parameters": [{ "name": "locale", "in": "query", "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "Localized prompt templates",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "prompts": { "type": "array", "items": { "$ref": "#/components/schemas/AiPromptTemplate" } } }, "required": ["prompts"] } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "summary": "Create a reusable prompt",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiPromptCreateInput" } } } },
+        "responses": {
+          "201": { "description": "Prompt created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiPromptResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/prompts/{promptId}": {
+      "parameters": [{ "name": "promptId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "patch": {
+        "summary": "Update prompt text or execution behavior",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiPromptUpdateInput" } } } },
+        "responses": {
+          "200": { "description": "Prompt updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiPromptResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "summary": "Delete a prompt",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/ai/prompts/restore-defaults": {
+      "post": {
+        "summary": "Restore missing factory prompts without overwriting edits",
+        "parameters": [{ "name": "locale", "in": "query", "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Updated prompt list and restored count" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/restores/json/ai-prompts": {
+      "post": {
+        "summary": "Restore prompt templates from an EdgeEver ZIP backup",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "prompts": { "type": "array", "maxItems": 100, "items": { "$ref": "#/components/schemas/AiPromptTemplate" } } }, "required": ["prompts"] } } }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/auth/session": {
       "get": {
         "summary": "Read interactive session",
@@ -129,6 +363,37 @@
             "$ref": "#/components/responses/Error"
           }
         }
+      },
+      "patch": {
+        "summary": "Update a login device label",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "label": { "type": ["string", "null"], "maxLength": 80 } },
+                "required": ["label"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Device label updated",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
       }
     },
     "/api/v1/auth/sessions/{sessionId}": {
@@ -189,6 +454,9 @@
             }
           },
           "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
             "$ref": "#/components/responses/Error"
           },
           "503": {
@@ -285,6 +553,35 @@
           } } } },
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/instance/object-storage": {
+      "get": {
+        "summary": "Read instance object storage settings (owner only)",
+        "responses": {
+          "200": { "description": "Active and saved external object storage settings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectStorageSettingsResponse" } } } },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "put": {
+        "summary": "Test and update instance object storage settings (owner only)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectStorageSettingsUpdateInput" } } } },
+        "responses": {
+          "200": { "description": "Updated object storage settings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectStorageSettingsResponse" } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/instance/object-storage/test": {
+      "post": {
+        "summary": "Test S3-compatible object storage with an upload/read/delete probe (owner only)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObjectStorageConnectionTestInput" } } } },
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "400": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -841,6 +1138,73 @@
         }
       }
     },
+    "/api/v1/memos/{id}/share": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MemoId"
+        }
+      ],
+      "get": {
+        "summary": "Read the active public share for a memo",
+        "responses": {
+          "200": {
+            "description": "Current share status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "share": {
+                      "oneOf": [
+                        { "$ref": "#/components/schemas/MemoShare" },
+                        { "type": "null" }
+                      ]
+                    }
+                  },
+                  "required": ["share"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create or return a public read-only share link",
+        "responses": {
+          "200": {
+            "description": "Existing share",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "share": { "$ref": "#/components/schemas/MemoShare" } },
+                  "required": ["share"]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Share created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "share": { "$ref": "#/components/schemas/MemoShare" } },
+                  "required": ["share"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke a public memo share",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/memos/{id}/restore": {
       "parameters": [
         {
@@ -1162,6 +1526,53 @@
         }
       }
     },
+    "/api/v1/resources/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ],
+      "patch": {
+        "summary": "Rename a resource",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "filename": { "type": "string", "minLength": 1, "maxLength": 160 } },
+                "required": ["filename"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Renamed resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "resource": { "$ref": "#/components/schemas/Resource" } },
+                  "required": ["resource"]
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "summary": "Delete a resource",
+        "responses": {
+          "200": { "$ref": "#/components/responses/Ok" },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/v1/resources/{id}/blob": {
       "parameters": [
         {
@@ -1179,6 +1590,59 @@
           "200": {
             "description": "Resource blob"
           }
+        }
+      }
+    },
+    "/api/public/shares/{token}": {
+      "parameters": [
+        {
+          "name": "token",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ],
+      "get": {
+        "summary": "Read a publicly shared note",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Public read-only note",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "share": { "$ref": "#/components/schemas/PublicMemoShare" } },
+                  "required": ["share"]
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/public/shares/{token}/resources/{resourceId}/blob": {
+      "parameters": [
+        {
+          "name": "token",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "resourceId",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        }
+      ],
+      "get": {
+        "summary": "Read an attachment belonging to a publicly shared note",
+        "security": [],
+        "responses": {
+          "200": { "description": "Shared resource blob" },
+          "404": { "$ref": "#/components/responses/Error" }
         }
       }
     },
@@ -1396,12 +1860,16 @@
         "properties": {
           "id": { "type": "string" },
           "userAgent": { "type": ["string", "null"] },
+          "label": { "type": ["string", "null"] },
+          "ipAddress": { "type": ["string", "null"] },
+          "ipCountry": { "type": ["string", "null"] },
+          "ipRegion": { "type": ["string", "null"] },
           "isCurrent": { "type": "boolean" },
           "createdAt": { "type": "string", "format": "date-time" },
           "lastSeenAt": { "type": "string", "format": "date-time" },
           "expiresAt": { "type": "string", "format": "date-time" }
         },
-        "required": ["id", "userAgent", "isCurrent", "createdAt", "lastSeenAt", "expiresAt"]
+        "required": ["id", "userAgent", "label", "ipAddress", "ipCountry", "ipRegion", "isCurrent", "createdAt", "lastSeenAt", "expiresAt"]
       },
       "AuthUser": {
         "type": "object",
@@ -1453,6 +1921,166 @@
           "isDisabled": { "type": "boolean" }
         },
         "minProperties": 1
+      },
+      "ObjectStorageSettings": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["builtin", "s3"] },
+          "displayName": { "type": "string" },
+          "endpoint": { "type": ["string", "null"] },
+          "region": { "type": ["string", "null"] },
+          "bucket": { "type": ["string", "null"] },
+          "accessKeyId": { "type": ["string", "null"] },
+          "hasSecretAccessKey": { "type": "boolean" },
+          "forcePathStyle": { "type": "boolean" },
+          "objectPrefix": { "type": "string" },
+          "encryptionConfigured": { "type": "boolean" }
+        },
+        "required": ["provider", "displayName", "endpoint", "region", "bucket", "accessKeyId", "hasSecretAccessKey", "forcePathStyle", "objectPrefix", "encryptionConfigured"]
+      },
+      "ObjectStorageSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "settings": { "$ref": "#/components/schemas/ObjectStorageSettings" },
+          "externalSettings": { "oneOf": [{ "$ref": "#/components/schemas/ObjectStorageSettings" }, { "type": "null" }] }
+        },
+        "required": ["settings"]
+      },
+      "ObjectStorageS3Input": {
+        "type": "object",
+        "properties": {
+          "endpoint": { "type": "string", "format": "uri", "maxLength": 500 },
+          "region": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "bucket": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "accessKeyId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "secretAccessKey": { "type": "string", "minLength": 1, "maxLength": 1024 },
+          "forcePathStyle": { "type": "boolean", "default": true },
+          "objectPrefix": { "type": "string", "maxLength": 500, "default": "" }
+        },
+        "required": ["endpoint", "region", "bucket", "accessKeyId"]
+      },
+      "ObjectStorageConnectionTestInput": {
+        "$ref": "#/components/schemas/ObjectStorageS3Input"
+      },
+      "ObjectStorageSettingsUpdateInput": {
+        "oneOf": [
+          { "type": "object", "properties": { "provider": { "const": "builtin" } }, "required": ["provider"] },
+          { "allOf": [
+            { "$ref": "#/components/schemas/ObjectStorageS3Input" },
+            { "type": "object", "properties": { "provider": { "const": "s3" }, "displayName": { "type": "string", "minLength": 1, "maxLength": 80 } }, "required": ["provider", "displayName"] }
+          ] }
+        ]
+      },
+      "AiModel": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "providerConfigId": { "type": "string" },
+          "modelId": { "type": "string" },
+          "displayName": { "type": "string" }
+        },
+        "required": ["id", "providerConfigId", "modelId", "displayName"]
+      },
+      "AiProvider": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "provider": { "type": "string", "enum": ["openai-compatible", "anthropic", "google"] },
+          "displayName": { "type": "string" },
+          "baseUrl": { "type": "string", "format": "uri" },
+          "isEnabled": { "type": "boolean" },
+          "hasApiKey": { "type": "boolean" },
+          "models": { "type": "array", "items": { "$ref": "#/components/schemas/AiModel" } }
+        },
+        "required": ["id", "provider", "displayName", "baseUrl", "isEnabled", "hasApiKey", "models"]
+      },
+      "AiSettings": {
+        "type": "object",
+        "properties": {
+          "providers": { "type": "array", "items": { "$ref": "#/components/schemas/AiProvider" } },
+          "defaultModelId": { "type": ["string", "null"] },
+          "encryptionConfigured": { "type": "boolean" },
+          "readOnly": { "type": "boolean" }
+        },
+        "required": ["providers", "defaultModelId", "encryptionConfigured", "readOnly"]
+      },
+      "AiProviderCreateInput": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["openai-compatible", "anthropic", "google"] },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "baseUrl": { "type": "string", "format": "uri", "maxLength": 500 },
+          "apiKey": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "isEnabled": { "type": "boolean", "default": true },
+          "initialModelId": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "required": ["provider", "displayName", "baseUrl", "apiKey"]
+      },
+      "AiProviderUpdateInput": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["openai-compatible", "anthropic", "google"] },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "baseUrl": { "type": "string", "format": "uri", "maxLength": 500 },
+          "apiKey": { "type": "string", "minLength": 1, "maxLength": 4096 },
+          "isEnabled": { "type": "boolean", "default": true }
+        },
+        "required": ["provider", "displayName", "baseUrl"]
+      },
+      "AiModelCreateInput": {
+        "type": "object",
+        "properties": {
+          "modelId": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "required": ["modelId"]
+      },
+      "AiPromptTemplate": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "origin": { "type": "string", "enum": ["default", "custom"] },
+          "seedKey": { "type": ["string", "null"] },
+          "action": { "type": "string", "enum": ["summarize", "extract-key-points", "extract-todos", "rewrite-proofread", "translate", "improve-writing", "fix-spelling-grammar", "make-shorter", "make-longer", "simplify-language", "change-tone", "continue-writing", "custom"] },
+          "parameterKind": { "type": "string", "enum": ["none", "target-language", "tone"] },
+          "resultMode": { "type": "string", "enum": ["append", "replace", "both"] },
+          "nameCustomized": { "type": "boolean" },
+          "descriptionCustomized": { "type": "boolean" },
+          "instructionCustomized": { "type": "boolean" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": ["string", "null"], "maxLength": 200 },
+          "instruction": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "origin", "seedKey", "action", "parameterKind", "resultMode", "nameCustomized", "descriptionCustomized", "instructionCustomized", "name", "description", "instruction", "createdAt", "updatedAt"]
+      },
+      "AiPromptCreateInput": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": "string", "maxLength": 200 },
+          "instruction": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "parameterKind": { "type": "string", "enum": ["none", "target-language", "tone"], "default": "none" },
+          "resultMode": { "type": "string", "enum": ["append", "replace", "both"], "default": "both" }
+        },
+        "required": ["name", "instruction"]
+      },
+      "AiPromptUpdateInput": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": { "type": ["string", "null"], "maxLength": 200 },
+          "instruction": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "parameterKind": { "type": "string", "enum": ["none", "target-language", "tone"] },
+          "resultMode": { "type": "string", "enum": ["append", "replace", "both"] }
+        }
+      },
+      "AiPromptResponse": {
+        "type": "object",
+        "properties": { "prompt": { "$ref": "#/components/schemas/AiPromptTemplate" } },
+        "required": ["prompt"]
       },
       "LoginInput": {
         "type": "object",
@@ -1651,6 +2279,27 @@
             "required": ["contentJson", "contentMarkdown", "contentText", "contentHash", "sourceMemoIds", "mergeSourceCount", "mergedIntoMemoId"]
           }
         ]
+      },
+      "MemoShare": {
+        "type": "object",
+        "properties": {
+          "memoId": { "type": "string" },
+          "token": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["memoId", "token", "createdAt", "updatedAt"]
+      },
+      "PublicMemoShare": {
+        "type": "object",
+        "properties": {
+          "title": { "type": ["string", "null"] },
+          "contentJson": { "$ref": "#/components/schemas/TiptapDoc" },
+          "contentMarkdown": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["title", "contentJson", "contentMarkdown", "tags", "updatedAt"]
       },
       "MemoCreateInput": {
         "type": "object",

@@ -1,7 +1,8 @@
 import type { createEdgeEverClient, ListMemosResponse, MemoFilterMode, MemoSortMode } from "@edgeever/client";
-import type { MemoDetail, MemoSummary, Notebook } from "@edgeever/shared";
+import type { MemoDetail, MemoSummary, Notebook, TagSummary } from "@edgeever/shared";
 import * as SQLite from "expo-sqlite";
 import { hasMobileSyncCursorRewound, hasMobileSyncIdentityChanged, isMobileSyncMetadataInitialized, splitMobileBootstrapWriteBatches } from "./mobile-sync-protocol";
+import { summarizeMobileTags } from "./mobile-tags";
 
 const DATABASE_NAME = "edgeever-mobile.db";
 const BOOTSTRAP_PAGE_SIZE = 200;
@@ -73,6 +74,22 @@ export const listLocalNotebooks = async (scope: string): Promise<{ notebooks: No
       lastMemoUpdatedAt: row.last_memo_updated_at,
     })),
   };
+};
+
+export const listLocalTags = async (scope: string): Promise<{ tags: TagSummary[] }> => {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<StoredMemoRow>(
+    "SELECT data_json FROM mobile_memos WHERE scope = ? AND is_deleted = 0",
+    scope
+  );
+  const memos = rows.flatMap((row) => {
+    try {
+      return [JSON.parse(row.data_json) as MemoDetail];
+    } catch {
+      return [];
+    }
+  });
+  return { tags: summarizeMobileTags(memos) };
 };
 
 export const listLocalMemos = async (scope: string, params: LocalMemoListParams): Promise<ListMemosResponse> => {
@@ -161,6 +178,22 @@ export const upsertLocalMemo = async (scope: string, memo: MemoDetail) => {
 export const deleteLocalMemo = async (scope: string, memoId: string) => {
   const db = await getDatabase();
   await db.runAsync(`DELETE FROM mobile_memos WHERE scope = ? AND id = ?`, scope, memoId);
+};
+
+/** Soft-delete a mirror row so list views hide it without waiting for a remote sync. */
+export const softDeleteLocalMemo = async (scope: string, memoId: string) => {
+  const memo = await getLocalMemo(scope, memoId);
+  if (!memo || memo.isDeleted) {
+    return false;
+  }
+  const now = new Date().toISOString();
+  await upsertLocalMemo(scope, {
+    ...memo,
+    isDeleted: true,
+    deletedAt: now,
+    updatedAt: now,
+  });
+  return true;
 };
 
 export const replaceLocalMemoId = async (scope: string, temporaryId: string, memo: MemoDetail) => {

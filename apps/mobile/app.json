@@ -3,7 +3,7 @@
     "name": "EdgeEver",
     "slug": "edgeever",
     "scheme": "edgeever",
-    "version": "1.5.16",
+    "version": "1.39.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -16,7 +16,7 @@
       }
     },
     "icon": "./assets/icon.png",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
@@ -24,13 +24,21 @@
       "supportsTablet": false,
       "config": {
         "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "UIRequiresFullScreen": true,
+        "NSMicrophoneUsageDescription": "EdgeEver only uses the microphone if web content inside a note explicitly requests it.",
+        "NSCameraUsageDescription": "Allow EdgeEver to use your camera to take photos and insert them into your notes."
       }
     },
     "android": {
       "package": "org.edgeever.mobile",
-      "versionCode": 36,
+      "versionCode": 134,
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#d1fae5",
+        "backgroundColor": "#16A06E",
         "backgroundImage": "./assets/icon.png",
         "foregroundImage": "./assets/adaptive-icon-transparent.png"
       }
@@ -39,9 +47,17 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow EdgeEver to take photos and insert them into your notes.",
+          "microphonePermission": false,
+          "photosPermission": "Allow EdgeEver to choose photos to insert into your notes."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
-          "backgroundColor": "#D9FAEA",
+          "backgroundColor": "#16A06E",
           "image": "./assets/icon.png",
           "imageWidth": 180,
           "resizeMode": "contain"
@@ -56,6 +72,30 @@
             "targetSdkVersion": 36,
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
+      [
+        "expo-sharing",
+        {
+          "ios": {
+            "enabled": true,
+            "activationRule": {
+              "supportsText": true,
+              "supportsWebPageWithMaxCount": 1,
+              "supportsWebUrlWithMaxCount": 1
+            }
+          },
+          "android": {
+            "enabled": true,
+            "multipleShareMimeTypes": [
+              "text/plain",
+              "image/*"
+            ],
+            "singleShareMimeTypes": [
+              "text/plain",
+              "image/*"
+            ]
           }
         }
       ]

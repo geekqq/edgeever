@@ -1,4 +1,5 @@
 import * as SplashScreen from "expo-splash-screen";
+import { useIncomingShare } from "expo-sharing";
 import { useIsRestoring } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
@@ -15,6 +16,19 @@ const WorkspaceScreen = lazy(() =>
 export default function IndexScreen() {
   const { isLoading, session } = useSession();
   const isRestoringCache = useIsRestoring();
+  const {
+    clearSharedPayloads,
+    error: incomingShareError,
+    isResolving: isResolvingIncomingShare,
+    resolvedSharedPayloads,
+    sharedPayloads,
+  } = useIncomingShare();
+  const incomingSharePayloads = resolvedSharedPayloads.length > 0
+    ? resolvedSharedPayloads
+    : sharedPayloads;
+  const isWaitingForBinaryShareResolution = !incomingShareError
+    && resolvedSharedPayloads.length === 0
+    && sharedPayloads.some((payload) => payload.shareType !== "text" && payload.shareType !== "url");
 
   useEffect(() => {
     if (!isLoading && !isRestoringCache) {
@@ -29,7 +43,12 @@ export default function IndexScreen() {
 
   return session ? (
     <Suspense fallback={<StartupPlaceholder showBrand />}>
-      <WorkspaceScreen />
+      <WorkspaceScreen
+        incomingShareError={incomingShareError}
+        incomingShareIsResolving={isResolvingIncomingShare || isWaitingForBinaryShareResolution}
+        incomingSharePayloads={incomingSharePayloads}
+        onIncomingShareHandled={clearSharedPayloads}
+      />
     </Suspense>
   ) : (
     <LoginScreen />

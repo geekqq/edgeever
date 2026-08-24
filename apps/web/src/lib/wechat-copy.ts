@@ -1,15 +1,23 @@
 import type { Editor } from "@tiptap/react";
+import { MEMO_CONTENT_STYLE } from "@edgeever/shared";
 import { marked } from "marked";
+import { MERMAID_THEME_PALETTES } from "@/components/ThemeProvider";
+import { copyHtmlToClipboard } from "@/lib/clipboard";
+import { parseCustomCssToStyles } from "@/lib/css-sandbox";
+
+const BODY_LINE_HEIGHT = MEMO_CONTENT_STYLE.body.lineHeight / MEMO_CONTENT_STYLE.body.fontSize;
+const BODY_FONT_SIZE = `${MEMO_CONTENT_STYLE.body.fontSize}px`;
+const PARAGRAPH_SPACING = `${MEMO_CONTENT_STYLE.body.paragraphSpacing}px`;
 
 const WECHAT_STYLES: Record<string, string> = {
-  p: "margin: 0 0 1em; line-height: 1.75; font-size: 16px; color: #333;",
+  p: `margin: 0 0 ${PARAGRAPH_SPACING}; padding: 0; line-height: ${BODY_LINE_HEIGHT}; font-size: ${BODY_FONT_SIZE}; color: #333;`,
   h1: "margin: 1.2em 0 0.6em; font-size: 24px; line-height: 1.35; font-weight: 700; color: #1f2937;",
   h2: "margin: 1.1em 0 0.55em; font-size: 21px; line-height: 1.4; font-weight: 700; color: #1f2937;",
   h3: "margin: 1em 0 0.5em; font-size: 18px; line-height: 1.45; font-weight: 700; color: #1f2937;",
-  blockquote: "margin: 1em 0; padding: 0.6em 1em; border-left: 4px solid #10b981; background: #f0fdf4; color: #4b5563; line-height: 1.75;",
-  ul: "margin: 0 0 1em; padding-left: 1.6em; line-height: 1.75;",
-  ol: "margin: 0 0 1em; padding-left: 1.6em; line-height: 1.75;",
-  li: "margin: 0.25em 0; line-height: 1.75;",
+  blockquote: `margin: 1em 0; padding: 0.6em 1em; border-left: 4px solid #10b981; background: #f0fdf4; color: #4b5563; line-height: ${BODY_LINE_HEIGHT};`,
+  ul: `margin: 0 0 1em; padding-left: 1.6em; line-height: ${BODY_LINE_HEIGHT};`,
+  ol: `margin: 0 0 1em; padding-left: 1.6em; line-height: ${BODY_LINE_HEIGHT};`,
+  li: `margin: 0.25em 0; line-height: ${BODY_LINE_HEIGHT};`,
   a: "color: #059669; text-decoration: underline;",
   strong: "font-weight: 700;",
   em: "font-style: italic;",
@@ -49,12 +57,69 @@ const THEME_BLOCK_STYLES: Record<string, { block: string; label: string }> = {
   },
 };
 
-const applyInlineStyles = (root: HTMLElement, editorTheme?: string) => {
-  root.style.cssText = "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.75; color: #333; word-break: break-word;";
+const applyInlineStyles = (
+  root: HTMLElement,
+  editorTheme?: string,
+  customColors?: { bg: string; text: string; accent: string; soft: string; border: string } | null,
+  customCss?: string
+) => {
+  const textColor = customColors ? customColors.text : "#333";
+  const bgColors = customColors ? customColors.bg : "#ffffff";
+  const accent = customColors ? customColors.accent : "#059669";
+  const soft = customColors ? customColors.soft : "#f0fdfa";
+  const border = customColors ? customColors.border : "#e5e7eb";
+
+  const customStyles = customCss ? parseCustomCssToStyles(customCss) : null;
+
+  root.style.cssText = `font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: ${BODY_FONT_SIZE}; line-height: ${BODY_LINE_HEIGHT}; color: ${textColor}; background-color: ${bgColors}; word-break: break-word;`;
+
   root.querySelectorAll<HTMLElement>("*").forEach((element) => {
-    const style = WECHAT_STYLES[element.tagName.toLowerCase()];
+    const tagName = element.tagName.toLowerCase();
+    let style = WECHAT_STYLES[tagName] || "";
+    const isMergeDivider =
+      tagName === "hr" && element.matches("[data-edgeever-merge-divider], .edgeever-merge-divider");
+
+    if (isMergeDivider) {
+      style = `margin: 1.75em 0; border: 0; border-top: 2px solid ${accent};`;
+    } else if (customColors) {
+      if (tagName === "p") {
+        style = `margin: 0 0 ${PARAGRAPH_SPACING}; padding: 0; line-height: ${BODY_LINE_HEIGHT}; font-size: ${BODY_FONT_SIZE}; color: ${textColor};`;
+      } else if (tagName === "h1" || tagName === "h2" || tagName === "h3") {
+        style = style.replace("color: #1f2937;", `color: ${textColor};`);
+      } else if (tagName === "blockquote") {
+        style = `margin: 1em 0; padding: 0.6em 1em; border-left: 4px solid ${accent}; background: ${soft}; color: ${textColor}; line-height: ${BODY_LINE_HEIGHT};`;
+      } else if (tagName === "a") {
+        style = `color: ${accent}; text-decoration: underline;`;
+      } else if (tagName === "code") {
+        style = `padding: 0.15em 0.35em; border-radius: 3px; background: ${soft}; color: ${textColor}; font-family: Menlo, Consolas, monospace; font-size: 0.9em;`;
+      } else if (tagName === "pre") {
+        style = `margin: 1em 0; padding: 12px 14px; overflow: hidden; border-radius: 6px; background: ${soft}; color: ${textColor}; line-height: 1.6; text-align: left;`;
+      } else if (tagName === "hr") {
+        style = `margin: 1.5em 0; border: 0; border-top: 1px solid ${border};`;
+      } else if (tagName === "th") {
+        style = `padding: 8px; border: 1px solid ${border}; background: ${soft}; font-weight: 700; text-align: left; color: ${textColor};`;
+      } else if (tagName === "td") {
+        style = `padding: 8px; border: 1px solid ${border}; text-align: left; color: ${textColor};`;
+      }
+    }
+
+    if (customStyles && customStyles[tagName]) {
+      style = `${style} ${customStyles[tagName]}`;
+    }
+
     if (style) element.style.cssText = `${style}${element.style.cssText}`;
   });
+
+  root.querySelectorAll<HTMLElement>("p").forEach((paragraph) => {
+    paragraph.style.margin = `0 0 ${PARAGRAPH_SPACING}`;
+    paragraph.style.padding = "0";
+    paragraph.style.lineHeight = String(BODY_LINE_HEIGHT);
+  });
+
+  root.querySelectorAll<HTMLElement>("ul, ol, li, blockquote").forEach((bodyBlock) => {
+    bodyBlock.style.lineHeight = String(BODY_LINE_HEIGHT);
+  });
+
   root.querySelectorAll<HTMLElement>("pre code").forEach((element) => {
     element.style.cssText = "padding: 0; background: transparent; color: inherit; font-family: Menlo, Consolas, monospace; font-size: 13px; white-space: pre-wrap;";
   });
@@ -62,12 +127,34 @@ const applyInlineStyles = (root: HTMLElement, editorTheme?: string) => {
   root.querySelectorAll<HTMLElement>("[data-edgeever-theme-block]").forEach((block) => {
     const kind = block.getAttribute("data-theme-block-kind") || "intro";
     const themeStyles = THEME_BLOCK_STYLES[kind] || THEME_BLOCK_STYLES.intro;
-    const accent = editorTheme === "red-white" ? "#dc2626" : editorTheme === "olive-journal" ? "#ed7b2f" : editorTheme === "graphite-minimal" ? "#52525b" : editorTheme === "mint-breeze" ? "#00a86b" : "#059669";
-    block.style.cssText = `${themeStyles.block} border-left-color: ${accent}; ${block.style.cssText}`;
+    
+    let blockStyle = themeStyles.block;
+    let labelStyle = themeStyles.label;
+
+    if (customColors) {
+      if (kind === "intro") {
+        blockStyle = `margin: 20px 0; padding: 0 0 4px; border-left: 5px solid ${accent}; background: ${soft}; color: ${textColor};`;
+        labelStyle = `padding: 10px 14px 0; color: ${accent}; font-size: 12px; font-weight: 700; letter-spacing: 1px;`;
+      } else if (kind === "key-point") {
+        blockStyle = `margin: 20px 0; padding: 0 0 4px; border: 1px solid ${border}; border-radius: 8px; background: ${soft}; color: ${textColor};`;
+        labelStyle = `padding: 10px 14px 0; color: ${accent}; font-size: 12px; font-weight: 700; letter-spacing: 1px;`;
+      } else if (kind === "callout") {
+        blockStyle = `margin: 20px 0; padding: 0 0 4px; border: 1px dashed ${border}; background: ${soft}; color: ${textColor};`;
+        labelStyle = `padding: 10px 14px 0; color: ${accent}; font-size: 12px; font-weight: 700; letter-spacing: 1px;`;
+      } else if (kind === "chapter") {
+        blockStyle = `margin: 28px 0 16px; padding: 0 0 4px; border-top: 3px solid ${accent}; color: ${textColor};`;
+        labelStyle = `padding: 10px 0 0; color: ${accent}; font-size: 12px; font-weight: 700; letter-spacing: 2px;`;
+      }
+    } else {
+      blockStyle = `${blockStyle} border-left-color: ${accent};`;
+      labelStyle = `${labelStyle} color: ${accent};`;
+    }
+
+    block.style.cssText = `${blockStyle}${block.style.cssText}`;
 
     const label = document.createElement("p");
     label.textContent = THEME_BLOCK_LABELS[kind] || "主题组件";
-    label.style.cssText = `${themeStyles.label} color: ${accent}; margin: 0;`;
+    label.style.cssText = `${labelStyle} margin: 0;`;
     block.insertBefore(label, block.firstChild);
   });
 };
@@ -194,6 +281,7 @@ const renderMermaidSvg = async (source: string) => {
   const { renderMermaidSVG, THEMES } = await import("beautiful-mermaid");
   return renderMermaidSVG(source, {
     ...THEMES["zinc-light"],
+    ...MERMAID_THEME_PALETTES["zinc-light"],
     transparent: true,
     font: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
     padding: 24,
@@ -276,37 +364,29 @@ const embedImagesForWeChat = async (root: HTMLElement, originalImages: HTMLImage
 export const buildWeChatClipboardHtml = async (editor: Editor) => {
   const container = document.createElement("div");
   container.innerHTML = editor.getHTML();
-  const editorTheme = editor.view.dom.closest<HTMLElement>("[data-editor-theme]")?.dataset.editorTheme;
-  applyInlineStyles(container, editorTheme);
+  
+  const closestContainer = editor.view.dom.closest<HTMLElement>("[data-editor-theme]");
+  const editorTheme = closestContainer?.dataset.editorTheme;
+  
+  let customColors: { bg: string; text: string; accent: string; soft: string; border: string } | null = null;
+  if (closestContainer && editorTheme === "custom") {
+    customColors = {
+      bg: closestContainer.style.getPropertyValue("--editor-theme-bg") || "#ffffff",
+      text: closestContainer.style.getPropertyValue("--editor-theme-text") || "#1f2937",
+      accent: closestContainer.style.getPropertyValue("--editor-theme-accent") || "#059669",
+      soft: closestContainer.style.getPropertyValue("--editor-theme-soft") || "#ecfdf5",
+      border: closestContainer.style.getPropertyValue("--editor-theme-border") || "#a7f3d0",
+    };
+  }
+
+  const customStyleTag = closestContainer?.querySelector<HTMLStyleElement>("style[data-theme-custom-css]");
+  const customCss = customStyleTag?.dataset.originalCss || "";
+
+  applyInlineStyles(container, editorTheme, customColors, customCss);
   await embedMermaidForWeChat(container, editor);
   const originalImages = Array.from(editor.view.dom.querySelectorAll<HTMLImageElement>("img"));
   await embedImagesForWeChat(container, originalImages);
   return container.outerHTML;
-};
-
-const copyHtmlToClipboard = async (html: string, plainText: string) => {
-  if (navigator.clipboard && "ClipboardItem" in window) {
-    await navigator.clipboard.write([new ClipboardItem({
-      "text/html": new Blob([html], { type: "text/html" }),
-      "text/plain": new Blob([plainText], { type: "text/plain" }),
-    })]);
-    return;
-  }
-
-  const selection = window.getSelection();
-  const range = document.createRange();
-  const container = document.createElement("div");
-  container.setAttribute("contenteditable", "true");
-  container.style.cssText = "position: fixed; left: -99999px; top: 0;";
-  container.innerHTML = html;
-  document.body.appendChild(container);
-  range.selectNodeContents(container);
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-  const copied = document.execCommand("copy");
-  selection?.removeAllRanges();
-  container.remove();
-  if (!copied) throw new Error("Clipboard copy was not available");
 };
 
 export const copyEditorToWeChat = async (editor: Editor) =>
@@ -315,7 +395,25 @@ export const copyEditorToWeChat = async (editor: Editor) =>
 export const copyMarkdownToWeChat = async (markdown: string) => {
   const container = document.createElement("div");
   container.innerHTML = marked.parse(markdown, { async: false, gfm: true, breaks: false });
-  applyInlineStyles(container);
+  
+  const closestContainer = document.querySelector<HTMLElement>("[data-editor-theme]");
+  const editorTheme = closestContainer?.dataset.editorTheme;
+  
+  let customColors: { bg: string; text: string; accent: string; soft: string; border: string } | null = null;
+  if (closestContainer && editorTheme === "custom") {
+    customColors = {
+      bg: closestContainer.style.getPropertyValue("--editor-theme-bg") || "#ffffff",
+      text: closestContainer.style.getPropertyValue("--editor-theme-text") || "#1f2937",
+      accent: closestContainer.style.getPropertyValue("--editor-theme-accent") || "#059669",
+      soft: closestContainer.style.getPropertyValue("--editor-theme-soft") || "#ecfdf5",
+      border: closestContainer.style.getPropertyValue("--editor-theme-border") || "#a7f3d0",
+    };
+  }
+
+  const customStyleTag = closestContainer?.querySelector<HTMLStyleElement>("style[data-theme-custom-css]");
+  const customCss = customStyleTag?.dataset.originalCss || "";
+
+  applyInlineStyles(container, editorTheme, customColors, customCss);
   await embedMermaidForWeChat(container);
   await embedImagesForWeChat(container);
   await copyHtmlToClipboard(container.outerHTML, container.textContent ?? "");

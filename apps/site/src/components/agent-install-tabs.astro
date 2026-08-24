@@ -1,152 +1,176 @@
 ---
 import { Icon } from "astro-icon/components";
+import { deploymentPrompts, manualDeploymentCopy } from "@/deployment-prompts";
 
 const { locale = "zh-CN" } = Astro.props;
 const isEnglish = locale === "en-US";
 
 const copy = isEnglish
   ? {
-      chooseOne: "Choose any one of the following three options to complete deployment.",
-      oneClick: "Option A: Cloudflare one-click",
-      agent: "Option B: AI Agent",
-      manual: "Option C: Manual",
+      architectureIntro:
+        "EdgeEver uses a pure Serverless architecture that runs entirely within Cloudflare's free tiers. No VPS or server rental is required, and there is no need to configure Docker or SSL certificates.",
+      chooseOne: "You can deploy online using either of the following two options:",
+      oneClick: "Option B: Manual Online Deployment",
+      agent: "Option A: Deploy with an AI Agent",
       recommended: "Recommended",
-      oneClickIntro:
-        "One-click deployment creates a dedicated GitHub repository and the required Cloudflare resources, then automatically redeploys after the repository's daily upstream sync.",
-      deployButton: "Deploy to Cloudflare",
-      oneClickGuide: "Setup and troubleshooting",
+      agentIntro:
+        "Copy the prompt below directly into an AI Agent (such as Codex, Claude, Cursor, workbuddy, Antigravity, OpenClaw, Hermes Agent, etc.). During execution, if access to GitHub or Cloudflare is required, review the requested permissions and follow the prompts to authorize access.",
+      agentGuide: "Detailed requirements: AI Agent Cloudflare Deployment",
+      agentGuideHref:
+        "https://github.com/tianma-if/edgeever/blob/main/docs/agent-deploy-cloudflare.md",
+      oneClickIntro: manualDeploymentCopy["en-US"].intro,
+      manualSteps: manualDeploymentCopy["en-US"].steps,
+      oneClickGuide: "Open the online deployment guide",
       oneClickGuideHref:
         "https://github.com/tianma-if/edgeever/blob/main/docs/deploy-cloudflare-button.md",
-      agentIntro:
-        "Copy the prompt below to your AI assistant (Claude Code, Codex, Cursor, and similar tools).",
-      promptLabel: "Prompt",
+      promptLabel: "PROMPT",
       copyPrompt: "Copy prompt",
       copying: "Copying...",
       copied: "Copied",
       copyFailed: "Copy failed",
-      billingNotice:
-        "Heads up: Cloudflare R2, D1, and Workers may ask you to add a Visa card even when you use the free quotas.",
-      manualGuide: "Open the complete manual deployment guide",
-      manualGuideHref: "/en/manual-deploy",
-      promptText:
-        "Please follow these steps:\n1. Create a GitHub repository from https://github.com/tianma-if/edgeever and clone it locally.\n2. Follow docs/agent-deploy-cloudflare.md to create Cloudflare resources and run `bun run deploy:manual`.\n3. Run `bun run deploy:builds:setup` to connect the deployed Worker to the repository's `main` branch through Cloudflare Workers Builds. If setup needs a token, use a User API Token, not an Account API Token.\n4. Verify the first automatic build and the daily upstream-update workflow.",
+      promptText: deploymentPrompts["en-US"],
     }
   : {
-      chooseOne: "以下三种方案任选其一即可完成部署。",
-      oneClick: "方案 A：Cloudflare 一键部署",
-      agent: "方案 B：AI Agent 一句话部署",
-      manual: "方案 C：手动部署",
+      architectureIntro:
+        "EdgeEver 采用纯 Serverless 架构，完全运行在 Cloudflare 免费配额内，无需购买服务器/VPS，也无需配置 Docker 或 SSL 证书。",
+      chooseOne: "您可以选择以下两种方式之一在线部署：",
+      oneClick: "方案二：手动在线部署",
+      agent: "方案一：AI Agent 一键部署",
       recommended: "推荐",
-      oneClickIntro: "一键部署会创建专属 GitHub 仓库和所需 Cloudflare 资源，并在仓库每日同步上游版本后自动触发重新部署。",
-      deployButton: "Deploy to Cloudflare",
-      oneClickGuide: "查看配置与排错说明",
+      agentIntro:
+        "将下方提示词直接复制发送给 AI Agent（如 Codex、Claude、Cursor、workbuddy、Antigravity、OpenClaw、Hermes Agent 等）。执行过程中，如需访问 GitHub 或 Cloudflare，请确认权限范围并按提示完成授权。",
+      agentGuide: "详细约定与要求：AI Agent 在线部署约定",
+      agentGuideHref:
+        "https://github.com/tianma-if/edgeever/blob/main/docs/agent-deploy-cloudflare.zh-CN.md",
+      oneClickIntro: manualDeploymentCopy["zh-CN"].intro,
+      manualSteps: manualDeploymentCopy["zh-CN"].steps,
+      oneClickGuide: "查看在线部署文档",
       oneClickGuideHref:
         "https://github.com/tianma-if/edgeever/blob/main/docs/deploy-cloudflare-button.zh-CN.md",
-      agentIntro: "将下方提示词复制给你的 AI 助手（Claude Code、Codex、Cursor 等）。",
-      promptLabel: "提示词",
+      promptLabel: "PROMPT",
       copyPrompt: "复制提示词",
       copying: "复制中...",
       copied: "已复制",
       copyFailed: "复制失败",
-      billingNotice:
-        "提示：Cloudflare 的 R2、D1 和 Worker 即使使用免费额度，开通或使用时也可能要求绑定 Visa 卡。国内用户可考虑使用招商银行多币种卡绑定。",
-      manualGuide: "查看完整手动部署指南",
-      manualGuideHref: "/manual-deploy",
-      promptText:
-        "请按以下流程操作：\n1. 基于 https://github.com/tianma-if/edgeever 创建 GitHub 仓库并克隆到本地。\n2. 严格按照 docs/agent-deploy-cloudflare.md 创建 Cloudflare 资源并运行 `bun run deploy:manual`。\n3. 运行 `bun run deploy:builds:setup`，通过 Cloudflare Workers Builds 将已部署的 Worker 连接到仓库的 `main` 分支；如需 token，使用 User API Token，不要使用 Account API Token。\n4. 验证首次自动构建和每日上游更新工作流。",
+      promptText: deploymentPrompts["zh-CN"],
     };
 ---
 
 <section class="not-prose relative left-1/2 my-10 w-[min(92vw,960px)] -translate-x-1/2" data-agent-install-tabs>
-  <p class="mb-6 text-center text-lg font-semibold text-slate-700">{copy.chooseOne}</p>
+  <div class="mx-auto mb-5 max-w-3xl space-y-3 text-center text-sm leading-relaxed text-slate-600 sm:text-base">
+    <p>{copy.architectureIntro}</p>
+    <p class="font-bold text-slate-800">{copy.chooseOne}</p>
+  </div>
 
-  <div class="mx-auto grid max-w-4xl grid-cols-1 border-b border-slate-200 text-sm font-semibold sm:grid-cols-3 sm:text-base">
+  <!-- Segmented Control Tab Header (Radix / Shadcn Segmented Control Pill Style) -->
+  <div class="mx-auto max-w-lg p-1 rounded-2xl bg-slate-200/80 border border-slate-300/60 grid grid-cols-2 gap-1 text-xs sm:text-sm font-semibold select-none shadow-2xs">
     <button
-      class="agent-install-tab active relative px-3 py-4 text-brand transition hover:text-brand-text"
-      type="button"
-      data-tab-target="one-click"
-      aria-selected="true">
-      <span>{copy.oneClick}</span>
-      <span class="ml-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs text-brand">{copy.recommended}</span>
-    </button>
-    <button
-      class="agent-install-tab relative px-3 py-4 text-slate-500 transition hover:text-brand-text"
+      class="agent-install-tab active flex items-center justify-center gap-1.5 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl transition-all cursor-pointer bg-white text-slate-950 font-bold shadow-xs"
       type="button"
       data-tab-target="agent"
-      aria-selected="false">
-      {copy.agent}
+      aria-selected="true">
+      <span class="truncate">{copy.agent}</span>
+      <span class="shrink-0 rounded-md bg-emerald-100 text-emerald-800 px-1.5 py-0.5 text-[10px] sm:text-xs font-bold">{copy.recommended}</span>
     </button>
     <button
-      class="agent-install-tab relative px-3 py-4 text-slate-500 transition hover:text-brand-text"
+      class="agent-install-tab flex items-center justify-center gap-1.5 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl transition-all cursor-pointer text-slate-500 hover:text-slate-900"
       type="button"
-      data-tab-target="manual"
+      data-tab-target="one-click"
       aria-selected="false">
-      {copy.manual}
+      <span class="truncate">{copy.oneClick}</span>
     </button>
   </div>
 
-  <div class="mt-8 overflow-hidden rounded-[28px] bg-slate-100 px-6 py-8 sm:px-10 md:px-14">
-    <div class="agent-install-panel" data-tab-panel="one-click">
-      <p class="mx-auto max-w-3xl text-center text-lg leading-9 text-slate-600">{copy.oneClickIntro}</p>
-      <div class="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
+  <div class="mt-6 overflow-hidden rounded-[28px] bg-slate-100/90 px-4 py-6 sm:px-10 md:px-14 sm:py-8 border border-slate-200/60 shadow-xs">
+    <div class="agent-install-panel hidden" data-tab-panel="one-click">
+      <div class="mx-auto max-w-3xl text-xs leading-relaxed text-slate-600 sm:text-sm md:text-base">
+        <p class="text-center font-semibold text-slate-800">{copy.oneClickIntro}</p>
+        <ol class="mt-5 space-y-3 text-left">
+          {copy.manualSteps.map((step, index) => (
+            <li class="flex items-start gap-3">
+              <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">
+                {index + 1}
+              </span>
+              <p>
+                <strong class="text-slate-800">{step.title}</strong>{isEnglish ? ": " : "："}{step.body}
+              </p>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div class="mt-8 flex justify-center">
         <a
-          class="inline-flex items-center gap-2 rounded-xl bg-[#f48120] px-7 py-3 text-base font-semibold text-white shadow-[0_14px_30px_-18px_rgba(244,129,32,0.85)] transition hover:-translate-y-0.5 hover:bg-[#e87315]"
-          href="https://deploy.workers.cloudflare.com/?url=https://github.com/tianma-if/edgeever"
-          target="_blank"
-          rel="noopener">
-          <Icon class="h-5 w-5" name="simple-icons:cloudflare" />
-          {copy.deployButton}
-        </a>
-        <a
-          class="text-sm font-semibold text-brand-text underline decoration-brand-border underline-offset-4 hover:text-brand"
+          class="inline-flex items-center gap-2 rounded-full bg-brand px-8 py-3 text-xs sm:text-base font-semibold text-white shadow-[0_14px_30px_-18px_rgb(var(--edgeever-brand-rgb)/0.85)] transition hover:-translate-y-0.5 hover:bg-brand-hover active:scale-95"
           href={copy.oneClickGuideHref}
           target="_blank"
           rel="noopener">
+          <Icon class="h-5 w-5" name="bx:bx-book-open" />
           {copy.oneClickGuide}
         </a>
       </div>
     </div>
 
-    <div class="agent-install-panel hidden" data-tab-panel="agent">
-      <p class="mx-auto mb-8 max-w-3xl text-center text-lg leading-9 text-slate-600">
-        {copy.agentIntro}
+    <div class="agent-install-panel" data-tab-panel="agent">
+      <div class="mx-auto mb-6 max-w-3xl text-center sm:text-left text-xs sm:text-sm md:text-base leading-relaxed text-slate-600 font-sans">
+        <p class="text-center leading-relaxed">{copy.agentIntro}</p>
+      </div>
+
+      <!-- Pireel-style Premium Terminal Prompt Window -->
+      <div class="mx-auto max-w-3xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden font-mono text-xs sm:text-sm">
+        <!-- Top Window Bar (Explicit rounded-t-2xl to prevent WebKit backdrop-blur overflow) -->
+        <div class="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/90 rounded-t-2xl px-3.5 sm:px-4 py-2.5 backdrop-blur-sm select-none">
+          <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1.5 mr-1.5">
+              <span class="h-2.5 w-2.5 rounded-full bg-[#ff5f57] inline-block opacity-80"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-[#febc2e] inline-block opacity-80"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-[#28c840] inline-block opacity-80"></span>
+            </div>
+            <span class="flex items-center gap-1.5 text-xs font-bold font-mono text-emerald-400">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"></path><path d="m4 17 6-6-6-6"></path></svg>
+              {copy.promptLabel}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="agent-install-copy group inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 hover:bg-emerald-950/90 border border-slate-700/80 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-300 text-xs font-mono transition-all cursor-pointer select-none"
+            data-copy-text={copy.promptText}
+            data-copy-default={copy.copyPrompt}
+            data-copy-copying={copy.copying}
+            data-copy-copied={copy.copied}
+            data-copy-failed={copy.copyFailed}>
+            <Icon class="h-3.5 w-3.5 text-slate-400 group-hover:text-emerald-400 transition-colors" name="bx:bx-copy" />
+            <span data-copy-label>{copy.copyPrompt}</span>
+          </button>
+        </div>
+
+        <div class="rounded-b-2xl bg-slate-950/95 p-4 text-slate-200 sm:p-6">
+          <pre class="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed sm:text-sm">{copy.promptText}</pre>
+        </div>
+      </div>
+
+      <p class="mx-auto mt-4 max-w-3xl text-center text-xs text-slate-600 sm:text-sm">
+        <a class="font-semibold text-brand underline underline-offset-4 hover:text-brand-hover" href={copy.agentGuideHref} target="_blank" rel="noopener">
+          {copy.agentGuide}
+        </a>
       </p>
 
-      <div class="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-sm">
-        <p class="text-sm font-medium text-slate-400">{copy.promptLabel}</p>
-        <pre class="mt-4 whitespace-pre-wrap break-words font-mono text-base leading-8 text-slate-900">{copy.promptText}</pre>
-      </div>
-
-      <div class="mt-8 flex justify-center">
-        <button
-          class="agent-install-copy inline-flex items-center gap-2 rounded-full bg-brand px-8 py-3 text-base font-semibold text-white shadow-[0_14px_30px_-18px_rgb(var(--edgeever-brand-rgb)/0.85)] transition hover:-translate-y-0.5 hover:bg-brand-hover"
-          type="button"
-          data-copy-text={copy.promptText}
-          data-copy-default={copy.copyPrompt}
-          data-copy-copying={copy.copying}
-          data-copy-copied={copy.copied}
-          data-copy-failed={copy.copyFailed}>
-          <Icon class="h-5 w-5" name="bx:bx-copy" />
-          <span data-copy-label>{copy.copyPrompt}</span>
-        </button>
-      </div>
-
-      <div class="mx-auto mt-5 flex max-w-3xl gap-2 rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-900">
-        <Icon class="mt-0.5 h-4 w-4 shrink-0 text-amber-600" name="bx:bx-credit-card" />
-        <p>{copy.billingNotice}</p>
+      <!-- Bottom R2 Billing Notice Card (Soft Muted Amber Warning) -->
+      <div class="mx-auto mt-5 flex max-w-3xl items-start gap-2.5 rounded-xl border border-amber-200/50 bg-amber-50/50 p-3 sm:p-3.5 text-xs leading-relaxed text-amber-900/80 font-sans">
+        <Icon class="mt-0.5 h-4 w-4 shrink-0 text-amber-600/70" name="bx:bx-credit-card" />
+        {isEnglish ? (
+          <p>
+            <span class="font-semibold text-amber-950">Note:</span> Although Cloudflare R2 offers a generous <a class="underline underline-offset-2 hover:text-amber-950" href="https://developers.cloudflare.com/r2/pricing/#free-tier" target="_blank" rel="noopener">free storage allowance</a> that note-taking workloads are unlikely to ever exceed, you must first activate an R2 subscription and add a payment method. Cloudflare <a class="underline underline-offset-2 hover:text-amber-950" href="https://developers.cloudflare.com/billing/get-started/update-billing-info/#supported-payment-methods" target="_blank" rel="noopener">officially supports</a> UnionPay, Visa, Mastercard, and other cards, as well as PayPal, Apple Pay, Google Pay, and other payment methods.
+          </p>
+        ) : (
+          <p>
+            <span class="font-semibold text-amber-950">提示：</span>虽然 Cloudflare R2 存储提供了足够慷慨、在笔记场景中几乎永远不会超量的<a class="underline underline-offset-2 hover:text-amber-950" href="https://developers.cloudflare.com/r2/pricing/#free-tier" target="_blank" rel="noopener">免费存储额度</a>，但需先开通 R2 subscription 并绑定付款方式。Cloudflare <a class="underline underline-offset-2 hover:text-amber-950" href="https://developers.cloudflare.com/billing/get-started/update-billing-info/#supported-payment-methods" target="_blank" rel="noopener">官方支持</a> 银联（UnionPay）、Visa、Mastercard 等银行卡，以及 PayPal、Apple Pay、Google Pay 等付款方式。
+          </p>
+        )}
       </div>
     </div>
 
-    <div class="agent-install-panel hidden" data-tab-panel="manual">
-      <div class="mx-auto flex justify-center">
-        <a
-          class="inline-flex items-center gap-2 rounded-full bg-brand px-8 py-3 text-base font-semibold text-white shadow-[0_14px_30px_-18px_rgb(var(--edgeever-brand-rgb)/0.85)] transition hover:-translate-y-0.5 hover:bg-brand-hover"
-          href={copy.manualGuideHref}>
-          {copy.manualGuide}
-          <Icon class="h-5 w-5" name="bx:bx-right-arrow-alt" />
-        </a>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -191,8 +215,13 @@ const copy = isEnglish
             const isActive = item === tab;
             item.setAttribute("aria-selected", String(isActive));
             item.classList.toggle("active", isActive);
-            item.classList.toggle("text-brand", isActive);
-            item.classList.toggle("text-slate-500", !isActive);
+            if (isActive) {
+              item.classList.add("bg-white", "text-slate-950", "font-bold", "shadow-xs");
+              item.classList.remove("text-slate-500");
+            } else {
+              item.classList.remove("bg-white", "text-slate-950", "font-bold", "shadow-xs");
+              item.classList.add("text-slate-500");
+            }
           });
 
           panels.forEach((panel) => {
@@ -201,7 +230,7 @@ const copy = isEnglish
         });
       });
 
-      root.querySelectorAll("[data-copy-text]").forEach((button) => {
+      root.querySelectorAll(".agent-install-copy").forEach((button) => {
         button.addEventListener("click", async () => {
           const text = button.getAttribute("data-copy-text") || "";
           const label = button.querySelector("[data-copy-label]");
@@ -233,16 +262,3 @@ const copy = isEnglish
     initAgentInstallTabs();
   }
 </script>
-
-<style>
-  .agent-install-tab.active::after {
-    position: absolute;
-    right: 0;
-    bottom: -1px;
-    left: 0;
-    height: 3px;
-    border-radius: 999px;
-    background: var(--color-brand);
-    content: "";
-  }
-</style>

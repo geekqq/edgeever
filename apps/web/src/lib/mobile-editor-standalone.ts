@@ -1,7 +1,6 @@
 import { emptyDoc, resolveMemoContentDoc, type MemoDetail, type Resource, type TiptapDoc } from "@edgeever/shared";
 import { ApiRequestError } from "@/lib/api";
 
-export const MOBILE_EDITOR_AUTO_SAVE_DELAY_MS = 1200;
 export const MOBILE_EDITOR_LEAVE_SAVE_TIMEOUT_MS = 1600;
 export const MOBILE_EDITOR_INITIAL_FOCUS_DELAY_MS = 160;
 export const MOBILE_EDITOR_DRAFT_STORAGE_PREFIX = "edgeever-mobile-tiptap-draft:";
@@ -75,7 +74,17 @@ export const parseMobileEditorTags = (value: string) =>
     .map((tag) => tag.trim())
     .filter(Boolean);
 
-export const safeMobileEditorReturnPath = (value: string | null) => (value?.startsWith("/") ? value : "/");
+export const safeMobileEditorReturnPath = (value: string | null) => {
+  const fallback = import.meta.env.BASE_URL.startsWith(".")
+    ? `${import.meta.env.BASE_URL}index.html`
+    : import.meta.env.BASE_URL;
+
+  if (value?.startsWith("/")) return value;
+  if (import.meta.env.BASE_URL.startsWith(".") && value?.startsWith(`${import.meta.env.BASE_URL}index.html`)) {
+    return value;
+  }
+  return fallback;
+};
 
 export const requestMobileEditorJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers);

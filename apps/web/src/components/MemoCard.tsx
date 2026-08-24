@@ -1,8 +1,10 @@
 import { useRef, useState, useEffect, type DragEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
+import * as m from "motion/react-m";
 import { Star, Check, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react";
 import type { MemoSummary } from "@edgeever/shared";
 import { cn } from "@/lib/utils";
+import { selectionSettleMotion } from "@/lib/motion";
 import type { MemoListDensity } from "@/lib/app-helpers";
 import { isDefaultMemoTitle, MEMO_DRAG_MIME, setMemoDragPreview } from "@/lib/app-helpers";
 
@@ -47,8 +49,8 @@ export const MemoCard = ({
   listDensity,
   multiSelectKeyDown,
   onOpen,
-  onDelete,
   onRestore,
+  onDelete,
   onOpenContextMenu,
   onOpenSelectionContextMenu,
   onOpenSelectionKeyboardContextMenu,
@@ -64,8 +66,8 @@ export const MemoCard = ({
   listDensity: MemoListDensity;
   multiSelectKeyDown: boolean;
   onOpen: () => void;
-  onDelete: () => void;
   onRestore: () => void;
+  onDelete: () => void;
   onOpenContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onOpenSelectionContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onOpenSelectionKeyboardContextMenu: (target: HTMLElement) => void;
@@ -310,15 +312,22 @@ export const MemoCard = ({
       draggable={!isTrashView}
       onDragStart={handleDragStart}
       className={cn(
-        "group overflow-hidden border border-slate-100 bg-white transition lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-slate-200 lg:shadow-none lg:last:border-b-0 transition-all duration-200 select-none",
+        "group relative overflow-hidden border border-slate-100 bg-white transition lg:rounded-none lg:border-x-0 lg:border-t-0 lg:border-slate-200 lg:shadow-none lg:last:border-b-0 dark:lg:border-slate-300/70 transition-all duration-200 select-none",
         listDensity === "compact" ? "rounded-md shadow-none" : "rounded-lg shadow-[0_4px_16px_rgba(15,23,42,0.045)]",
         !selectionMode && selected
-          ? "lg:bg-slate-100"
+          ? "edgeever-workspace-selection-desktop"
           : checked
-            ? "bg-slate-50 ring-1 ring-slate-200 lg:bg-slate-100 lg:ring-0"
+            ? "edgeever-workspace-selection-desktop bg-slate-50 ring-1 ring-slate-200 lg:ring-0"
             : "active:bg-slate-50 lg:hover:bg-slate-50"
       )}
     >
+      {!selectionMode && selected ? (
+        <m.span
+          className="pointer-events-none absolute inset-y-3 left-0 z-10 hidden w-[3px] origin-center rounded-r-full bg-emerald-500 lg:block"
+          aria-hidden="true"
+          {...selectionSettleMotion}
+        />
+      ) : null}
       <div className={cn("flex min-h-[132px] items-center", listDensity === "compact" && "min-h-[84px] lg:min-h-[76px]")}>
         {showSelectionControl && (
           <button
@@ -404,6 +413,7 @@ export const MemoCard = ({
               title={t("memoCard.moreActions")}
               aria-label={t("memoCard.moreActions")}
               aria-haspopup="menu"
+              data-memo-actions-trigger
               onClick={(event) => {
                 event.stopPropagation();
                 onOpenKeyboardContextMenu(event.currentTarget);
@@ -411,25 +421,31 @@ export const MemoCard = ({
             >
               <MoreHorizontal className="h-4 w-4" />
             </button>
+            {isTrashView && (
+              <button
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/70 focus-visible:ring-offset-2"
+                type="button"
+                title={t("memoCard.restoreMemo")}
+                aria-label={t("memoCard.restoreMemo")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRestore();
+                }}
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            )}
             <button
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/70 focus-visible:ring-offset-2",
-                isTrashView ? "hover:bg-slate-100 hover:text-slate-800" : "hover:bg-rose-50 hover:text-rose-700"
-              )}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 focus-visible:ring-offset-2"
               type="button"
-              title={isTrashView ? t("memoCard.restoreMemo") : t("memoCard.deleteMemo")}
-              aria-label={isTrashView ? t("memoCard.restoreMemo") : t("memoCard.deleteMemo")}
+              title={isTrashView ? t("memoCard.permanentDelete") : t("memoCard.deleteMemo")}
+              aria-label={isTrashView ? t("memoCard.permanentDelete") : t("memoCard.deleteMemo")}
               onClick={(event) => {
                 event.stopPropagation();
-                if (isTrashView) {
-                  onRestore();
-                  return;
-                }
-
                 onDelete();
               }}
             >
-              {isTrashView ? <RotateCcw className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+              <Trash2 className="h-4 w-4" />
             </button>
           </div>
         )}

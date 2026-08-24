@@ -1,7 +1,20 @@
 import { expect, test } from "bun:test";
-import { findNewerMobileRelease } from "./mobile-release";
+import {
+  ANDROID_INSTALL_UPDATE_SOURCES,
+  findNewerMobileRelease,
+  getDefaultMobileInstallUpdateUrl,
+  GITHUB_LATEST_RELEASE_URL,
+} from "./mobile-release";
 
-const responseWithTag = (tagName: string) => new Response(JSON.stringify({ tag_name: tagName }), {
+const responseWithTag = (tagName: string, androidVersion = tagName.replace(/^v/, "")) => new Response(JSON.stringify({
+  assets: [{
+    browser_download_url: `https://github.com/tianma-if/edgeever/releases/download/${tagName}/edgeever-android-v${androidVersion}-arm64-v8a.apk`,
+    digest: `sha256:${"a".repeat(64)}`,
+    name: `edgeever-android-v${androidVersion}-arm64-v8a.apk`,
+    size: 48_000_000,
+  }],
+  tag_name: tagName,
+}), {
   headers: { "Content-Type": "application/json" },
   status: 200,
 });
@@ -9,12 +22,29 @@ const responseWithTag = (tagName: string) => new Response(JSON.stringify({ tag_n
 test("finds a newer formal GitHub release", async () => {
   const release = await findNewerMobileRelease("0.4.14", async () => responseWithTag("v0.4.15"));
 
-  expect(release).toEqual({ version: "0.4.15" });
+  expect(release).toEqual({
+    digest: `sha256:${"a".repeat(64)}`,
+    downloadUrl: "https://github.com/tianma-if/edgeever/releases/download/v0.4.15/edgeever-android-v0.4.15-arm64-v8a.apk",
+    fileName: "edgeever-android-v0.4.15-arm64-v8a.apk",
+    size: 48_000_000,
+    version: "0.4.15",
+  });
 });
 
 test("does not treat the current or an older release as an update", async () => {
   expect(await findNewerMobileRelease("0.4.15", async () => responseWithTag("v0.4.15"))).toBeNull();
   expect(await findNewerMobileRelease("0.4.15", async () => responseWithTag("v0.4.14"))).toBeNull();
+});
+
+test("uses the actual reused Android asset version instead of the overall release tag", async () => {
+  expect(await findNewerMobileRelease("1.6.50", async () => responseWithTag("v1.7.0", "1.6.50"))).toBeNull();
+  expect(await findNewerMobileRelease("1.6.49", async () => responseWithTag("v1.7.0", "1.6.50"))).toEqual({
+    digest: `sha256:${"a".repeat(64)}`,
+    downloadUrl: "https://github.com/tianma-if/edgeever/releases/download/v1.7.0/edgeever-android-v1.6.50-arm64-v8a.apk",
+    fileName: "edgeever-android-v1.6.50-arm64-v8a.apk",
+    size: 48_000_000,
+    version: "1.6.50",
+  });
 });
 
 test("rejects invalid release responses instead of claiming the app is current", async () => {
@@ -24,4 +54,23 @@ test("rejects invalid release responses instead of claiming the app is current",
   await expect(findNewerMobileRelease("0.4.14", async () => new Response(null, { status: 403 }))).rejects.toThrow(
     "status 403"
   );
+  await expect(findNewerMobileRelease("0.4.14", async () => new Response(JSON.stringify({
+    assets: [],
+    tag_name: "v0.4.15",
+  })))).rejects.toThrow("exactly one Android APK");
+  await expect(findNewerMobileRelease("0.4.14", async () => new Response(JSON.stringify({
+    assets: [{
+      browser_download_url: "https://attacker.invalid/edgeever.apk",
+      digest: `sha256:${"a".repeat(64)}`,
+      name: "edgeever-android-v0.4.15-arm64-v8a.apk",
+      size: 48_000_000,
+    }],
+    tag_name: "v0.4.15",
+  })))).rejects.toThrow("exactly one Android APK");
+});
+
+test("uses GitHub Releases as the only install update destination", () => {
+  expect(getDefaultMobileInstallUpdateUrl("android")).toBe(GITHUB_LATEST_RELEASE_URL);
+  expect(getDefaultMobileInstallUpdateUrl("ios")).toBe(GITHUB_LATEST_RELEASE_URL);
+  expect(ANDROID_INSTALL_UPDATE_SOURCES.map((source) => source.url)).toEqual([GITHUB_LATEST_RELEASE_URL]);
 });
