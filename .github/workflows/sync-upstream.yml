@@ -34,7 +34,10 @@ jobs:
 
           # Keep the fork's own workflow files so the GitHub App token does not
           # need workflow-write permission, and so fork-specific deploy jobs stay intact.
-          git restore --source=HEAD --staged --worktree .github/workflows
+          # `--ours` also resolves modify/delete conflicts for workflow files that only
+          # exist upstream, which plain `git restore --source=HEAD` does not fully clear.
+          git restore --ours --staged --worktree .github/workflows
+          git add -A .github/workflows
 
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo 'Unresolved merge conflicts remain:'
