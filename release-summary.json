@@ -1,13 +1,13 @@
 {
-  "version": "1.44.0",
+  "version": "1.45.4",
   "changes": {
     "en-US": [
-      "Display attached files as consistent compact cards with recognizable type icons; PDF cards now toggle preview on click and load reliably in the desktop app.",
-      "Keep image uploads visually stable in the editor and clear image selection predictably when clicking the canvas."
+      "Cloudflare Workers Builds now safely routes the default deploy command through EdgeEver's validated database migration and deployment pipeline, with a simpler quick-start flow.",
+      "Self-hosting guidance now highlights free-tier capacity more clearly and includes the Telegram community channel."
     ],
     "zh-CN": [
-      "将附件统一显示为紧凑文件卡片并提供清晰的类型图标；PDF 卡片现在可单击切换预览，并在桌面端稳定加载。",
-      "图片上传时在编辑器中保持稳定的视觉占位，并在单击画布时可靠清除图片选中状态。"
+      "Cloudflare Workers Builds 现在会将默认部署命令安全接入 EdgeEver 已验证的数据库迁移与部署流水线，并简化快速上手流程。",
+      "自托管说明现在更清晰地展示免费额度，并补充 Telegram 社区频道入口。"
     ]
   }
 }
