@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 const {
+  classifyDesktopSyncFailure,
+  createDesktopSyncDiagnosticText,
   isStagedResourceReferenced,
   hasDesktopSyncStateReset,
   mergeMemoIdMappings,
@@ -9,7 +11,9 @@ const {
   orderBootstrapNotebooks,
   resolveDesktopMemoSyncBase,
   rewriteStagedResource,
+  shouldPullDesktopChanges,
 } = await import("./desktop-sync.ts");
+const { ApiRequestError } = await import("./api.ts");
 
 describe("desktop staged resource sync", () => {
   test("rewrites placeholders in memo JSON and markdown", () => {
@@ -110,5 +114,68 @@ describe("desktop memo sync base", () => {
       { revision: 9, contentHash: "cloud-9" },
       { expectedRevision: 3, expectedContentHash: "cloud-3" },
     )).toEqual({ expectedRevision: 3, expectedContentHash: "cloud-3" });
+  });
+});
+
+describe("desktop sync failure handling", () => {
+  test("stops retrying a missing memo update and keeps transient failures retryable", () => {
+    expect(classifyDesktopSyncFailure(
+      { kind: "memo.update" },
+      new ApiRequestError("Memo not found", 404, "not_found"),
+    )).toEqual({ conflict: false, retryable: false, errorCode: "memo_not_found" });
+
+    expect(classifyDesktopSyncFailure(
+      { kind: "memo.update" },
+      new ApiRequestError("Temporarily unavailable", 503),
+    )).toEqual({ conflict: false, retryable: true, errorCode: "http_503" });
+  });
+
+  test("copies diagnostics without exposing entity ids or payload content", () => {
+    const diagnostic = createDesktopSyncDiagnosticText([{
+      id: 7,
+      kind: "memo.update",
+      entityId: "private-memo-id",
+      payload: { contentMarkdown: "private note body" },
+      attemptCount: 3,
+      version: 1,
+      status: "error",
+      lastError: "Memo memo_private123 not found at https://private.example.test/api",
+      lastErrorCode: "memo_not_found",
+      retryable: false,
+    }]);
+
+    expect(diagnostic).toContain("memo_not_found");
+    expect(diagnostic).toContain('"totalItemCount": 1');
+    expect(diagnostic).not.toContain('"id": 7');
+    expect(diagnostic).not.toContain("private-memo-id");
+    expect(diagnostic).not.toContain("private note body");
+    expect(diagnostic).not.toContain("memo_private123");
+    expect(diagnostic).not.toContain("private.example.test");
+  });
+
+  test("bounds diagnostics for a prefilled GitHub Issue URL", () => {
+    const items = Array.from({ length: 200 }, (_, id) => ({
+      id,
+      kind: "memo.update",
+      entityId: `memo_private_${id}`,
+      payload: { contentMarkdown: "private note body" },
+      attemptCount: 99_999,
+      version: 1,
+      status: "error",
+      lastError: "Temporary failure ".repeat(40),
+      lastErrorCode: "network_error",
+      retryable: true,
+    }));
+    const diagnostic = createDesktopSyncDiagnosticText(items);
+
+    expect(diagnostic).toContain('"totalItemCount": 200');
+    expect(diagnostic).toContain('"includedItemCount": 5');
+    expect(encodeURIComponent(diagnostic).length).toBeLessThan(6_000);
+  });
+
+  test("allows remote pulls while durable errors are handled separately", () => {
+    expect(shouldPullDesktopChanges({ pending: 0, syncing: 0, error: 1, conflict: 1 }, true)).toBe(true);
+    expect(shouldPullDesktopChanges({ pending: 1, syncing: 0, error: 0, conflict: 0 }, true)).toBe(false);
+    expect(shouldPullDesktopChanges({ pending: 0, syncing: 0, error: 0, conflict: 0 }, false)).toBe(false);
   });
 });

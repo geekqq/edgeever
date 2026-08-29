@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import * as m from "motion/react-m";
@@ -7,7 +7,6 @@ import {
   Plus,
   LayoutList,
   LayoutTemplate,
-  Sparkles,
   BookPlus,
   ArrowDownWideNarrow,
   Notebook as NotebookIcon,
@@ -24,7 +23,6 @@ import {
   Download,
   ExternalLink,
   RotateCcw,
-  Store,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -53,8 +51,12 @@ import {
   writeNotebookSortPreference,
 } from "@/lib/app-helpers";
 import type { EdgeEverRepository } from "@/lib/repository";
+import type { EdgeEverPluginHost } from "@/lib/plugins/plugin-host";
 import { statusSettleMotion } from "@/lib/motion";
 import { DesktopUpdateNotice } from "./DesktopUpdateNotice";
+import { PluginToolbarMenu } from "./plugins/PluginToolbarMenu";
+
+const DesktopSyncIssuesDialog = lazy(() => import("./DesktopSyncIssuesDialog").then((module) => ({ default: module.DesktopSyncIssuesDialog })));
 
 const NOTEBOOK_DRAG_SCROLL_EDGE_PX = 56;
 const NOTEBOOK_DRAG_SCROLL_MAX_STEP_PX = 18;
@@ -240,14 +242,17 @@ const SyncStatusBar = ({
   isSyncing,
   onSyncNow,
   onDiscardConflicts,
+  notebooks,
 }: {
   summary: SyncQueueSummary;
   isOnline: boolean;
   isSyncing: boolean;
   onSyncNow: () => void;
   onDiscardConflicts: () => void;
+  notebooks: Notebook[];
 }) => {
   const { t } = useTranslation();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const hasQueuedWork = summary.total > 0;
   const label = getSyncStatusLabel(summary, isOnline, isSyncing, t);
   const statusClassName = !isOnline
@@ -280,7 +285,13 @@ const SyncStatusBar = ({
           <CheckCircle2 className="h-4 w-4" />
         )}
       </m.span>
-      <span className="min-w-0 flex-1 truncate text-xs font-medium">{label}</span>
+      <button
+        className="min-w-0 flex-1 truncate text-left text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+        type="button"
+        onClick={() => setDetailsOpen(true)}
+      >
+        {label}
+      </button>
       {summary.conflict > 0 && (
         <button
           className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-white/70 disabled:opacity-50"
@@ -292,16 +303,32 @@ const SyncStatusBar = ({
         </button>
       )}
       {hasQueuedWork && (
-        <button
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-white/70 disabled:opacity-50 transition-colors"
-          type="button"
-          title={t("notebookPane.syncNow")}
-          aria-label={t("notebookPane.syncNow")}
-          disabled={!isOnline || isSyncing}
-          onClick={onSyncNow}
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-        </button>
+        <TooltipProvider delayDuration={0}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-white/70 disabled:opacity-50 transition-colors"
+                type="button"
+                aria-label={t("notebookPane.syncNow")}
+                disabled={!isOnline || isSyncing}
+                onClick={onSyncNow}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("notebookPane.syncNow")}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+      {detailsOpen && (
+        <Suspense fallback={null}>
+          <DesktopSyncIssuesDialog
+            open={detailsOpen}
+            onOpenChange={setDetailsOpen}
+            notebooks={notebooks}
+            onSyncNow={onSyncNow}
+          />
+        </Suspense>
       )}
     </div>
   );
@@ -322,8 +349,8 @@ export const NotebookPane = ({
   onOpenTags,
   onOpenAssets,
   onOpenTemplates,
-  onOpenAiPrompts,
-  onOpenPluginMarketplace,
+  pluginHost,
+  onOpenPluginManager,
   onOpenTrash,
   onEmptyTrash,
   onOpenSettings,
@@ -358,8 +385,8 @@ export const NotebookPane = ({
   onOpenTags: () => void;
   onOpenAssets: () => void;
   onOpenTemplates: () => void;
-  onOpenAiPrompts: () => void;
-  onOpenPluginMarketplace: () => void;
+  pluginHost: EdgeEverPluginHost;
+  onOpenPluginManager: () => void;
   onOpenTrash: () => void;
   onEmptyTrash: () => void;
   onOpenSettings: () => void;
@@ -495,12 +522,16 @@ export const NotebookPane = ({
       </header>
 
       <TooltipProvider delayDuration={0} skipDelayDuration={0}>
-        <nav className="grid shrink-0 grid-cols-2 gap-0.5 border-b border-slate-100 px-2 py-1.5 sm:grid-cols-3 lg:grid-cols-6" aria-label={t("notebookPane.secondaryEntries")}>
+        <nav className="grid shrink-0 grid-cols-2 gap-0.5 border-b border-slate-100 px-2 py-1.5 sm:grid-cols-3 lg:grid-cols-5" aria-label={t("notebookPane.secondaryEntries")}>
           <SidebarShortcutButton icon={<Tags className="h-4 w-4" />} label={t("mobileSheets.tags")} onClick={onOpenTags} />
           <SidebarShortcutButton icon={<Archive className="h-4 w-4" />} label={t("mobileSheets.assets")} onClick={onOpenAssets} />
           {showTemplateEntry && <SidebarShortcutButton icon={<LayoutTemplate className="h-4 w-4" />} label={t("nav.templates")} onClick={onOpenTemplates} />}
-          <SidebarShortcutButton icon={<Sparkles className="h-4 w-4" />} label={t("nav.prompts")} onClick={onOpenAiPrompts} />
-          <SidebarShortcutButton icon={<Store className="h-4 w-4" />} label={t("plugins.marketplace.title")} onClick={onOpenPluginMarketplace} />
+          <PluginToolbarMenu
+            host={pluginHost}
+            onManage={onOpenPluginManager}
+            align="start"
+            className="h-9 w-full rounded-md px-0 text-slate-600"
+          />
           <SidebarTrashShortcut active={view === "trash"} onOpenTrash={onOpenTrash} onEmptyTrash={onEmptyTrash} />
         </nav>
       </TooltipProvider>
@@ -513,6 +544,7 @@ export const NotebookPane = ({
             isSyncing={isSyncingQueuedChanges}
             onSyncNow={onSyncQueuedChanges}
             onDiscardConflicts={onDiscardConflicts}
+            notebooks={notebooks}
           />
         </div>
       )}
