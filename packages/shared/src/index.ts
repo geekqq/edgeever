@@ -1,4 +1,5 @@
 export * from "./content";
+export * from "./companion";
 export * from "./public-demo";
 export * from "./ai-assistant";
 export * from "./ai-prompt-seeds";
@@ -11,6 +12,7 @@ export * from "./native-attachment-content";
 export * from "./backup";
 export * from "./github-feedback";
 export * from "./image-display";
+export * from "./image-gallery";
 export * from "./image-referrer";
 export * from "./markdown-image";
 export * from "./memo-safety";

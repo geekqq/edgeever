@@ -1,4 +1,8 @@
 import type {
+  CompanionMemory,
+  CompanionTurn,
+  CompanionTurnInput,
+  CompanionEvent,
   ApiToken,
   AuthSession,
   LoginInput,
@@ -15,6 +19,8 @@ import type {
   MemoSummary,
   MemoShare,
   MemoTemplate,
+  ScheduledTask,
+  ScheduledTaskRun,
   Notebook,
   Resource,
   ResourceListItem,
@@ -38,6 +44,29 @@ import type {
   SyncChange,
   SyncChangesResponse,
 } from "@edgeever/shared";
+
+const MAX_SINGLE_REQUEST_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+async function consumeEventStream<T>(body: ReadableStream<Uint8Array>, onEvent: (event: T) => void) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const emit = (frame: string) => {
+    const data = frame.split("\n").find(line => line.startsWith("data: "))?.slice(6);
+    if (data) onEvent(JSON.parse(data) as T);
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) emit(frame);
+      if (done) break;
+    }
+    if (buffer) emit(buffer);
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
 
 export type EdgeEverClientRequestContext = {
   path: string;
@@ -138,6 +167,37 @@ export type ListTemplatesResponse = {
 
 export type TemplateResponse = {
   template: MemoTemplate;
+};
+
+export type ListScheduledTasksResponse = {
+  tasks: ScheduledTask[];
+};
+
+export type ScheduledTaskResponse = {
+  task: ScheduledTask;
+};
+
+export type ScheduledTaskRunResponse = {
+  run: ScheduledTaskRun;
+};
+
+export type ScheduledTaskRunsResponse = {
+  runs: ScheduledTaskRun[];
+  totalCount: number;
+  nextOffset: number | null;
+};
+
+export type ScheduledTaskRunHistoryItem = ScheduledTaskRun & {
+  taskName: string;
+  pluginId: string;
+  ownerPluginId: string | null;
+  pluginScheduleKey: string | null;
+};
+
+export type ScheduledTaskRunHistoryResponse = {
+  runs: ScheduledTaskRunHistoryItem[];
+  totalCount: number;
+  nextOffset: number | null;
 };
 
 export type MemoShareResponse = {
@@ -668,6 +728,31 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
         signal,
       }),
 
+    listCompanionMemories: () => request<{ memories: CompanionMemory[] }>("/api/v1/companion/memories"),
+    saveCompanionMemory: (content: string, sourceTurnId?: string) => request<{ memory: CompanionMemory }>("/api/v1/companion/memories", {
+      method: "POST", body: JSON.stringify({ content, sourceTurnId }),
+    }),
+    updateCompanionMemory: (memory: CompanionMemory, content: string) => request<{ memory: CompanionMemory }>(`/api/v1/companion/memories/${encodeURIComponent(memory.id)}`, {
+      method: "PATCH", body: JSON.stringify({ content, version: memory.version }),
+    }),
+    forgetCompanionMemory: (memory: CompanionMemory) => request<{ ok: true }>(`/api/v1/companion/memories/${encodeURIComponent(memory.id)}?version=${memory.version}`, { method: "DELETE" }),
+    listCompanionTurns: () => request<{ turns: CompanionTurn[] }>("/api/v1/companion/turns"),
+    getCompanionTurn: (id: string) => request<{ turn: CompanionTurn }>(`/api/v1/companion/turns/${encodeURIComponent(id)}`),
+    cancelCompanionTurn: (id: string) => request<{ ok: true }>(`/api/v1/companion/turns/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
+    clearCompanionHistory: () => request<{ ok: true }>("/api/v1/companion/history", { method: "DELETE" }),
+    exportCompanion: () => request<{ version: 1; exportedAt: string; memories: CompanionMemory[]; turns: CompanionTurn[] }>("/api/v1/companion/export"),
+    importCompanionMemories: (memories: { content: string }[]) => request<{ memories: CompanionMemory[] }>("/api/v1/companion/import-memories", {
+      method: "POST", body: JSON.stringify({ version: 1, memories }),
+    }),
+    streamCompanion: async (payload: CompanionTurnInput, options: { signal?: AbortSignal; onEvent: (event: CompanionEvent) => void }) => {
+      const { context, response } = await send("/api/v1/companion/turns", {
+        method: "POST", body: JSON.stringify(payload), signal: options.signal,
+      });
+      if (!response.ok) await throwRequestError(context, response);
+      if (!response.body) throw new ApiRequestError("Stream unavailable", 502, "companion_failed");
+      await consumeEventStream(response.body, options.onEvent);
+    },
+
     streamAiGeneration: async (
       payload: AiGenerateInput,
       streamOptions: { signal?: AbortSignal; onEvent: (event: AiStreamEvent) => void },
@@ -682,22 +767,7 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
         await throwRequestError(context, response);
       }
       if (!response.body) throw new ApiRequestError("Streaming response is unavailable", 502, "ai_stream_unavailable");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        buffer += decoder.decode(value, { stream: !done });
-        const frames = buffer.split("\n\n");
-        buffer = frames.pop() ?? "";
-        for (const frame of frames) {
-          const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-          if (data) streamOptions.onEvent(JSON.parse(data) as AiStreamEvent);
-        }
-        if (done) break;
-      }
-      const trailingData = buffer.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-      if (trailingData) streamOptions.onEvent(JSON.parse(trailingData) as AiStreamEvent);
+      await consumeEventStream(response.body, streamOptions.onEvent);
     },
 
     listUsers: () => request<ListUsersResponse>("/api/v1/users"),
@@ -894,6 +964,98 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
     deleteTemplate: (templateId: string) =>
       request<{ ok: true }>(`/api/v1/templates/${templateId}`, { method: "DELETE" }),
 
+    listScheduledTasks: (executorDeviceId?: string) => {
+      const search = new URLSearchParams();
+      if (executorDeviceId) search.set("executorDeviceId", executorDeviceId);
+      const suffix = search.size > 0 ? `?${search.toString()}` : "";
+      return request<ListScheduledTasksResponse>(`/api/v1/scheduled-tasks${suffix}`);
+    },
+
+    listScheduledTaskRunHistory: (offset = 0, limit = 50) => {
+      const search = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+      return request<ScheduledTaskRunHistoryResponse>(`/api/v1/scheduled-task-runs?${search.toString()}`);
+    },
+
+    listPluginScheduledTasks: (pluginId: string) => request<ListScheduledTasksResponse>(
+      `/api/v1/scheduled-tasks/plugin/${encodeURIComponent(pluginId)}`,
+    ),
+
+    upsertPluginScheduledTask: (payload: {
+      pluginId: string;
+      scheduleKey: string;
+      name: string;
+      commandId: string;
+      cronExpression: string;
+      timezone: string;
+      executorDeviceId: string;
+      missedRunPolicy?: "run-once" | "skip";
+      isEnabled?: boolean;
+    }) => request<ScheduledTaskResponse>("/api/v1/scheduled-tasks/plugin-upsert", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+    deletePluginScheduledTask: (pluginId: string, scheduleKey: string) => request<{ ok: true }>(
+      `/api/v1/scheduled-tasks/plugin/${encodeURIComponent(pluginId)}/${encodeURIComponent(scheduleKey)}`,
+      { method: "DELETE" },
+    ),
+
+    createScheduledTask: (payload: {
+      name: string;
+      taskType: "plugin-command";
+      taskPayload: { pluginId: string; commandId: string };
+      cronExpression: string;
+      timezone: string;
+      executorDeviceId: string;
+      missedRunPolicy?: "run-once" | "skip";
+      isEnabled?: boolean;
+    }) => request<ScheduledTaskResponse>("/api/v1/scheduled-tasks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+    updateScheduledTask: (taskId: string, payload: {
+      name?: string;
+      taskPayload?: { pluginId: string; commandId: string };
+      cronExpression?: string;
+      timezone?: string;
+      executorDeviceId?: string;
+      missedRunPolicy?: "run-once" | "skip";
+      isEnabled?: boolean;
+    }) => request<ScheduledTaskResponse>(`/api/v1/scheduled-tasks/${encodeURIComponent(taskId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+    deleteScheduledTask: (taskId: string) => request<{ ok: true }>(
+      `/api/v1/scheduled-tasks/${encodeURIComponent(taskId)}`,
+      { method: "DELETE" },
+    ),
+
+    listScheduledTaskRuns: (taskId: string, offset = 0, limit = 50) => {
+      const search = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+      return request<ScheduledTaskRunsResponse>(
+        `/api/v1/scheduled-tasks/${encodeURIComponent(taskId)}/runs?${search.toString()}`,
+      );
+    },
+
+    claimScheduledTaskRun: (taskId: string, payload: {
+      scheduledFor: string;
+      executorDeviceId: string;
+    }) => request<ScheduledTaskRunResponse>(
+      `/api/v1/scheduled-tasks/${encodeURIComponent(taskId)}/runs/claim`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+
+    finishScheduledTaskRun: (taskId: string, runId: string, payload: {
+      executorDeviceId: string;
+      status: "succeeded" | "failed";
+      errorMessage?: string | null;
+    }) => request<ScheduledTaskRunResponse>(
+      `/api/v1/scheduled-tasks/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}/finish`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+
     moveMemos: (payload: { memoIds: string[]; notebookId: string }) =>
       request<{ ok: true; moved: number }>("/api/v1/memos/batch/move", {
         method: "POST",
@@ -1033,12 +1195,19 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
     ),
 
     uploadMemoResource: (memoId: string, file: Blob | FormData) => {
-      if (!(file instanceof FormData)) {
+      // Small files do not benefit from an upload session's three round trips.
+      // Keep large attachments on the bounded-memory, resumable path.
+      if (!(file instanceof FormData) && file.size > MAX_SINGLE_REQUEST_UPLOAD_BYTES) {
         return uploadMemoResourceMultipart(memoId, file);
       }
       const form = file instanceof FormData ? file : new FormData();
-      if (!(file instanceof FormData)) form.append("file", file);
-      return request<ResourceResponse>(`/api/v1/memos/${memoId}/resources`, {
+      if (!(file instanceof FormData)) {
+        const filename = "name" in file && typeof file.name === "string" && file.name.trim()
+          ? file.name
+          : "attachment";
+        form.append("file", file, filename);
+      }
+      return request<ResourceResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}/resources`, {
         method: "POST",
         body: form,
       });

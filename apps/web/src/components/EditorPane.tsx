@@ -71,6 +71,7 @@ import {
   createImageUploadPlaceholder,
   removeImageUploadPlaceholder,
   waitForImageSourceReady,
+  updateImageUploadPlaceholder,
 } from "./editor/image-upload-placeholder";
 import {
   clampResourceInsertionTarget,
@@ -78,6 +79,7 @@ import {
   getResourceInsertionTarget,
   shouldSelectInsertedResources,
 } from "@/lib/resource-insertion-target";
+import { insertUploadedResources } from "@/lib/resource-insertion";
 import {
   createSlashCommandExtension,
   type SlashCommandActions,
@@ -89,6 +91,7 @@ import {
 } from "./editor/NoteLinkSuggestion";
 import { WeChatIcon } from "./WeChatIcon";
 import { ThemeToggle } from "./ThemeToggle";
+import { ExecutionCenterButton } from "./execution/ExecutionCenterButton";
 import { useEditorTheme, useMarkdownTheme } from "./ThemeProvider";
 import type { MarkdownSourceEditorRef } from "./editor/MarkdownSourceEditor";
 
@@ -113,6 +116,7 @@ import {
   MEMO_CONTENT_STYLE,
   markdownToDoc,
   MergeDivider,
+  normalizeImageGalleries,
   PLUGIN_EMBED_NODE_TYPE,
   pluginEmbedToMarkdown,
   isPdfAttachment,
@@ -190,7 +194,7 @@ import {
   isAttachmentLinkHref,
 } from "@/lib/editor-external-link";
 import { insertAiDraftAtTextCursor } from "@/lib/ai-draft-insertion";
-import { createFileBatchQueue, processFilesSequentially } from "@/lib/file-batch";
+import { createFileBatchQueue, processFileUploadBatch } from "@/lib/file-batch";
 import { MEMO_ID_REMAPPED_EVENT, MEMO_SYNC_ACKNOWLEDGED_EVENT } from "@/lib/sync-events";
 import { useStandaloneMobileEditor } from "@/hooks/useStandaloneMobileEditor";
 import { statusSettleMotion } from "@/lib/motion";
@@ -209,6 +213,7 @@ import {
   type ImageMenuRequestDetail,
   type ImagePreviewRequestDetail,
 } from "./editor/ResizableImage";
+import { EditableImageGallery } from "./editor/ImageGallery";
 import { ImageViewer } from "./editor/ImageViewer";
 import { PdfAttachment } from "./editor/PdfAttachment";
 import { FileAttachment } from "./editor/FileAttachment";
@@ -464,6 +469,7 @@ type EditorPaneProps = {
   onOpenAiPrompts?: () => void;
   pluginHost: EdgeEverPluginHost;
   pluginNavigationRequest?: { id: number; noteId: string; search: string } | null;
+  onOpenExecutionCenter: () => void;
 };
 
 type RichEditorPaneProps = EditorPaneProps & {
@@ -538,6 +544,7 @@ const RichEditorPane = ({
   onOpenAiPrompts,
   pluginHost,
   pluginNavigationRequest,
+  onOpenExecutionCenter,
   onRequestMobileNativeEdit,
 }: RichEditorPaneProps) => {
   const { t, i18n } = useTranslation();
@@ -981,12 +988,13 @@ const RichEditorPane = ({
     const targetMemoId = currentMemo.id;
     const interactionVersionAtRequest = editorCanvasInteractionVersionRef.current;
     const placeholderPosition = currentEditor.state.selection.from;
-    const imagePlaceholders = files
+    const imagePlaceholderByFile = new Map(files
       .filter((file) => SUPPORTED_PASTE_IMAGE_TYPES.has(file.type))
-      .map((file) => createImageUploadPlaceholder(
+      .map((file) => [file, createImageUploadPlaceholder(
         file,
         t("editor.uploadState.imagePreparing"),
-      ));
+      )] as const));
+    const imagePlaceholders = [...imagePlaceholderByFile.values()];
     imagePlaceholders.forEach((placeholder) => {
       addImageUploadPlaceholder(currentEditor, placeholder, placeholderPosition);
     });
@@ -1005,14 +1013,25 @@ const RichEditorPane = ({
       // Rapid consecutive pastes otherwise race with the same stale cursor.
       const insertionTarget = getResourceInsertionTarget(insertionEditor.state.selection);
       setImageUploadState("uploading");
+      const imageReadiness: Promise<void>[] = [];
 
-      const results = await processFilesSequentially(files, async (file) => {
+      const results = await processFileUploadBatch(files, async (file) => {
         const isImage = SUPPORTED_PASTE_IMAGE_TYPES.has(file.type);
         const shouldCompress = isImage && imageCompressionEnabledRef.current;
+        const placeholder = imagePlaceholderByFile.get(file);
+        if (placeholder) updateImageUploadPlaceholder(editorRef.current, placeholder,
+          t(shouldCompress ? "editor.uploadState.imageCompressing" : "editor.uploadState.uploading"));
         setImageUploadState(shouldCompress ? "compressing" : "uploading");
-        const uploadFile = shouldCompress ? (await compressImageForUpload(file)).file : file;
-
+        const preparedFile = shouldCompress ? (await compressImageForUpload(file)).file : file;
+        if (placeholder) updateImageUploadPlaceholder(editorRef.current, placeholder,
+          t("editor.uploadState.waitingToUpload"));
+        return preparedFile;
+      }, async (uploadFile, file) => {
+        const isImage = SUPPORTED_PASTE_IMAGE_TYPES.has(file.type);
+        const placeholder = imagePlaceholderByFile.get(file);
         setImageUploadState("uploading");
+        if (placeholder) updateImageUploadPlaceholder(editorRef.current, placeholder,
+          t("editor.uploadState.uploading"));
         let resource: {
           kind: "image" | "attachment";
           filename: string | null;
@@ -1035,6 +1054,9 @@ const RichEditorPane = ({
             url: `edgeever-staged://${staged.id}`,
           };
         }
+        if (resource.kind === "image") {
+          imageReadiness.push(waitForImageSourceReady(resource.url));
+        }
         return resource;
       });
 
@@ -1042,10 +1064,7 @@ const RichEditorPane = ({
       if (successfulResults.length > 0) {
         void queryClient.invalidateQueries({ queryKey: ["resources"] });
       }
-
-      await Promise.all(successfulResults.map(({ value: resource }) =>
-        resource.kind === "image" ? waitForImageSourceReady(resource.url) : Promise.resolve()
-      ));
+      await Promise.all(imageReadiness);
 
       const activeEditor = editorRef.current;
       if (memoRef.current?.id !== targetMemoId || !isEditorReady(activeEditor)) {
@@ -1111,7 +1130,11 @@ const RichEditorPane = ({
           insertion.focus();
         }
         insertion
-          .insertContentAt(safeInsertionTarget, content, { updateSelection })
+          .command(insertUploadedResources(
+            safeInsertionTarget,
+            content,
+            updateSelection,
+          ))
           .run();
         if (!updateSelection) {
           // ProseMirror can still map a cursor at the document boundary to a
@@ -1151,6 +1174,7 @@ const RichEditorPane = ({
       FileAttachment,
       ...createEdgeEverMathematics(),
       ThemeBlock,
+      EditableImageGallery,
       ResizableImage.configure({
         allowBase64: false,
         inline: false,
@@ -1527,9 +1551,9 @@ const RichEditorPane = ({
         ...detail,
         kind: "image",
         position: {
-          left: Math.min(Math.max(rect.right - 8, 12), window.innerWidth - 12),
-          top: Math.min(Math.max(rect.bottom - 8, 12), window.innerHeight - 12),
-          placement: "inside-bottom-right",
+          left: rect.left + rect.width / 2,
+          top: rect.bottom + 8,
+          placement: "below",
         },
       });
     };
@@ -1823,7 +1847,7 @@ const RichEditorPane = ({
                 currentMemo.id,
                 markdownSource,
               )
-            : (currentEditor?.getJSON() as TiptapDoc),
+            : normalizeImageGalleries(currentEditor?.getJSON() as TiptapDoc),
         updatedAt: new Date().toISOString(),
       });
     },
@@ -2059,7 +2083,7 @@ const RichEditorPane = ({
       return null;
     }
 
-    return currentEditor.getJSON() as TiptapDoc;
+    return normalizeImageGalleries(currentEditor.getJSON() as TiptapDoc);
   }, [getMobilePlainTextValue, markdownSource, useMarkdownSourceEditor, useMobilePlainTextEditor]);
 
   const characterCount = useMemo(() => {
@@ -3972,11 +3996,6 @@ const RichEditorPane = ({
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <IconTooltip label={t("editor.versionHistory")}>
-              <Button className="hidden h-8 w-8 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-slate-300 min-[1600px]:inline-flex" size="icon" variant="ghost" aria-label={t("editor.versionHistory")} onClick={() => setHistoryOpen(true)}>
-                <History className="h-5 w-5" strokeWidth={2.25} />
-              </Button>
-            </IconTooltip>
             <GitHubRepositoryLink className="hidden h-8 w-8 justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70 min-[1600px]:inline-flex" iconClassName="h-5 w-5" />
             <IconTooltip label={t("systemInfo.title")}>
               <Button className="relative hidden h-8 w-8 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:ring-2 focus-visible:ring-emerald-500/70 min-[1600px]:inline-flex" size="icon" variant="ghost" aria-label={t("systemInfo.title")} onClick={() => setSystemInfoOpen(true)}>
@@ -3984,6 +4003,7 @@ const RichEditorPane = ({
                 {deployedUpdateUnseen ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-emerald-500 ring-2 ring-white" /> : null}
               </Button>
             </IconTooltip>
+            <ExecutionCenterButton className="h-8 w-8" onClick={onOpenExecutionCenter} />
             <ThemeToggle />
             {!effectiveReadOnly && (
               <IconTooltip label={t("editor.save")}>

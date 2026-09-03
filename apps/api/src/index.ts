@@ -74,6 +74,7 @@ import { registerAuthRoutes } from "./auth-routes";
 import { registerApiTokenRoutes } from "./api-token-routes";
 import { registerObjectStorageRoutes } from "./object-storage-routes";
 import { registerAiRoutes } from "./ai-routes";
+import { registerCompanionRoutes } from "./companion-routes";
 import { registerAiPromptRoutes } from "./ai-prompt-routes";
 import { registerResourceRoutes } from "./resource-routes";
 import {
@@ -86,6 +87,7 @@ import {
 import { registerPluginDistributionRoutes } from "./plugin-distribution-routes";
 import { registerSyncRoutes } from "./sync-routes";
 import { registerMemoRoutes } from "./memo-routes";
+import { registerScheduledTaskRoutes } from "./scheduled-task-routes";
 import { registerBackupRoutes } from "./backup-routes";
 import { registerMcpRoutes } from "./mcp-routes";
 import { callMcpTool as callMcpToolService } from "./mcp-tool-service";
@@ -294,6 +296,7 @@ registerObjectStorageRoutes(app, {
 registerAiRoutes(app, {
   isDemoMode: (...args) => isDemoMode(...args),
 });
+registerCompanionRoutes(app, { isDemoMode: (...args) => isDemoMode(...args) });
 registerAiPromptRoutes(app, {
   isDemoMode: (...args) => isDemoMode(...args),
 });
@@ -311,6 +314,7 @@ registerSyncRoutes(app, {
 });
 registerTagRoutes(app);
 registerPluginDistributionRoutes(app);
+registerScheduledTaskRoutes(app);
 registerMemoShareRoutes(app);
 registerTemplateRoutes(app, {
   createMemoRecord: (...args) => createMemoRecord(...args),

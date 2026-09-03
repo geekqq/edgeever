@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { BadgeCheck, BookOpen, Download, ExternalLink, PanelRightOpen, Play, Puzzle, RefreshCw, Trash2 } from "lucide-react";
+import { BadgeCheck, BookOpen, CalendarClock, Download, ExternalLink, History, PanelRightOpen, Play, Puzzle, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -12,128 +13,221 @@ import { loadPluginMarketplace } from "@/lib/plugins/plugin-marketplace";
 import { GitHubMark } from "@/components/GitHubRepositoryLink";
 import { checkPluginUpdates, type PluginUpdateInfo } from "@/lib/plugins/plugin-updates";
 import { PluginUpdateDialog } from "@/components/plugins/PluginUpdateDialog";
-import type { PluginManifest, PluginSettingValue } from "@edgeever/plugin-api";
+import { PluginSettingsSection } from "@/components/plugins/PluginSettingsSection";
+import { getPluginDetailPage, getPluginDetailPath, hasPluginSettings, type PluginDetailPage } from "@/lib/plugins/plugin-navigation";
+import type { ScheduledTask } from "@edgeever/shared";
+import { Cron } from "croner";
+import { api, getOrCreateClientDeviceId } from "@/lib/api";
+import { ScheduledTaskRunHistoryDialog } from "@/components/execution/ScheduledTaskRunHistoryDialog";
 
 const permissionLabel = (permission: string) => permission.replace(":", " · ");
 
-const PluginSettingsSection = ({ host, manifest }: { host: EdgeEverPluginHost; manifest: PluginManifest }) => {
+const commandKey = (command: RegisteredPluginCommand) => JSON.stringify([command.pluginId, command.id]);
+
+const ScheduledPluginTasksSection = ({ commands }: { commands: RegisteredPluginCommand[] }) => {
   const { t } = useTranslation();
-  const fields = manifest.settings?.fields ?? [];
-  const [values, setValues] = useState<Record<string, PluginSettingValue | "">>({});
-  const [configuredSecrets, setConfiguredSecrets] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(fields.length > 0);
-  const [saving, setSaving] = useState(false);
+  const queryClient = useQueryClient();
+  const deviceId = window.edgeeverDesktop?.isAvailable ? getOrCreateClientDeviceId() : null;
+  const [selectedCommandKey, setSelectedCommandKey] = useState("");
+  const [name, setName] = useState("");
+  const [cronExpression, setCronExpression] = useState("0 9 * * *");
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+  const [missedRunPolicy, setMissedRunPolicy] = useState<"run-once" | "skip">("run-once");
+  const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [historyTask, setHistoryTask] = useState<ScheduledTask | null>(null);
+  const tasksQuery = useQuery({
+    queryKey: ["scheduled-tasks", deviceId],
+    queryFn: () => api.listScheduledTasks(deviceId ?? undefined),
+    enabled: Boolean(deviceId),
+    refetchInterval: 60_000,
+  });
 
-  useEffect(() => {
-    let active = true;
-    setLoading(fields.length > 0);
-    setMessage(null);
-    void Promise.all(fields.map(async (field) => {
-      if (field.type === "secret") return { key: field.key, value: "" as const, configured: await host.hasSettingValue(manifest.id, field.key) };
-      return { key: field.key, value: await host.getSettingValue(manifest.id, field.key) ?? "", configured: false };
-    })).then((loaded) => {
-      if (!active) return;
-      setValues(Object.fromEntries(loaded.map((item) => [item.key, item.value])));
-      setConfiguredSecrets(Object.fromEntries(loaded.map((item) => [item.key, item.configured])));
-      setLoading(false);
-    }).catch((error) => {
-      if (!active) return;
-      setMessage(error instanceof Error ? error.message : String(error));
-      setLoading(false);
-    });
-    return () => { active = false; };
-  }, [host, manifest.id, manifest.version]);
+  if (!deviceId) return null;
 
-  if (fields.length === 0) return null;
-
-  const save = async () => {
-    setSaving(true);
+  const selectedCommand = commands.find((command) => commandKey(command) === selectedCommandKey);
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["scheduled-tasks"] });
+  };
+  const updateTask = async (taskId: string, isEnabled: boolean) => {
     setMessage(null);
     try {
-      for (const field of fields) {
-        const value = values[field.key];
-        if (field.type === "secret" && value === "") {
-          if (field.required && !configuredSecrets[field.key]) throw new Error(t("plugins.settings.required", { name: field.label }));
-          continue;
-        }
-        if (value === "") {
-          if (field.required) throw new Error(t("plugins.settings.required", { name: field.label }));
-          await host.removeSettingValue(manifest.id, field.key);
-          continue;
-        }
-        await host.setSettingValue(manifest.id, field.key, value);
-        if (field.type === "secret") {
-          setConfiguredSecrets((current) => ({ ...current, [field.key]: true }));
-          setValues((current) => ({ ...current, [field.key]: "" }));
-        }
-      }
-      setMessage(t("plugins.settings.saved"));
+      await api.updateScheduledTask(taskId, { isEnabled });
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const deleteTask = async (taskId: string) => {
+    setMessage(null);
+    try {
+      await api.deleteScheduledTask(taskId);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const createTask = async () => {
+    if (!selectedCommand) return;
+    setPending(true);
+    setMessage(null);
+    let validator: Cron | null = null;
+    try {
+      validator = new Cron(cronExpression.trim(), { timezone: timezone.trim(), paused: true });
+      if (!validator.nextRun()) throw new Error(t("plugins.schedules.noNextRun"));
+      await api.createScheduledTask({
+        name: name.trim() || selectedCommand.title,
+        taskType: "plugin-command",
+        taskPayload: { pluginId: selectedCommand.pluginId, commandId: selectedCommand.id },
+        cronExpression: cronExpression.trim(),
+        timezone: timezone.trim(),
+        executorDeviceId: deviceId,
+        missedRunPolicy,
+      });
+      setName("");
+      setMessage(t("plugins.schedules.created"));
+      await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setSaving(false);
+      validator?.stop();
+      setPending(false);
     }
   };
 
+  const tasks = tasksQuery.data?.tasks ?? [];
   return (
-    <section className="rounded-lg border border-slate-200 p-4">
-      <h3 className="text-xs font-semibold text-slate-700">{t("plugins.settings.title")}</h3>
-      {loading ? <p className="mt-3 text-xs text-slate-400">{t("common.loading")}</p> : (
-        <div className="mt-3 grid gap-4">
-          {fields.map((field) => {
-            const value = values[field.key] ?? "";
+    <section className="rounded-lg border border-emerald-100 bg-emerald-50/20 p-4">
+      <div className="flex items-start gap-2">
+        <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+        <div>
+          <h3 className="text-xs font-semibold text-slate-800">{t("plugins.schedules.title")}</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{t("plugins.schedules.description")}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className="grid gap-1.5 text-xs font-medium text-slate-700">
+          {t("plugins.schedules.command")}
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70"
+            value={selectedCommandKey}
+            onChange={(event) => {
+              const nextKey = event.target.value;
+              setSelectedCommandKey(nextKey);
+              const command = commands.find((candidate) => commandKey(candidate) === nextKey);
+              if (command && !name.trim()) setName(command.title);
+            }}
+          >
+            <option value="">{t("plugins.schedules.chooseCommand")}</option>
+            {commands.map((command) => (
+              <option key={commandKey(command)} value={commandKey(command)}>{command.title} · {command.pluginId}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1.5 text-xs font-medium text-slate-700">
+          {t("plugins.schedules.name")}
+          <Input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label className="grid gap-1.5 text-xs font-medium text-slate-700">
+          {t("plugins.schedules.cron")}
+          <Input className="font-mono" value={cronExpression} maxLength={160} onChange={(event) => setCronExpression(event.target.value)} />
+        </label>
+        <label className="grid gap-1.5 text-xs font-medium text-slate-700">
+          {t("plugins.schedules.timezone")}
+          <Input value={timezone} maxLength={80} onChange={(event) => setTimezone(event.target.value)} />
+        </label>
+        <label className="grid gap-1.5 text-xs font-medium text-slate-700">
+          {t("plugins.schedules.missedRun")}
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70"
+            value={missedRunPolicy}
+            onChange={(event) => setMissedRunPolicy(event.target.value as "run-once" | "skip")}
+          >
+            <option value="run-once">{t("plugins.schedules.runOnce")}</option>
+            <option value="skip">{t("plugins.schedules.skip")}</option>
+          </select>
+        </label>
+        <div className="flex items-end">
+          <Button className="h-9 gap-1.5" disabled={pending || !selectedCommand || !cronExpression.trim() || !timezone.trim()} onClick={() => void createTask()}>
+            <CalendarClock className="h-3.5 w-3.5" />
+            {pending ? t("common.saving") : t("plugins.schedules.create")}
+          </Button>
+        </div>
+      </div>
+      {message ? <p className="mt-3 text-xs text-slate-600">{message}</p> : null}
+
+      {tasks.length > 0 ? (
+        <div className="mt-4 grid gap-2">
+          {tasks.map((task) => {
+            const command = commands.find((candidate) =>
+              candidate.pluginId === task.taskPayload.pluginId && candidate.id === task.taskPayload.commandId);
             return (
-              <label key={field.key} className="grid gap-1.5 text-xs text-slate-700">
-                <span className="font-medium">{field.label}{field.required ? " *" : ""}</span>
-                {field.type === "boolean" ? (
-                  <Switch
-                    aria-label={field.label}
-                    checked={value === true}
-                    onCheckedChange={(checked) => setValues((current) => ({ ...current, [field.key]: checked }))}
-                  />
-                ) : field.type === "select" ? (
-                  <select
-                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/70"
-                    value={String(value)}
-                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
-                  >
-                    {!field.required ? <option value="">{t("plugins.settings.none")}</option> : null}
-                    {field.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                ) : (
-                  <Input
-                    type={field.type === "secret" ? "password" : field.type === "number" ? "number" : "text"}
-                    value={String(value)}
-                    placeholder={field.type === "secret" && configuredSecrets[field.key]
-                      ? t("plugins.settings.secretConfigured")
-                      : field.type === "text" || field.type === "secret"
-                        ? field.placeholder
-                        : undefined}
-                    min={field.type === "number" ? field.min : undefined}
-                    max={field.type === "number" ? field.max : undefined}
-                    step={field.type === "number" ? field.step : undefined}
-                    onChange={(event) => setValues((current) => ({
-                      ...current,
-                      [field.key]: field.type === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value,
-                    }))}
-                  />
-                )}
-                {field.description ? <span className="text-slate-400">{field.description}</span> : null}
-              </label>
+              <div key={task.id} className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-semibold text-slate-800">{task.name}</div>
+                  <div className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
+                    {task.cronExpression} · {task.timezone} · {command?.title ?? `${task.taskPayload.pluginId}:${task.taskPayload.commandId}`}
+                  </div>
+                  {task.ownerPluginId && task.pluginScheduleKey ? (
+                    <div className="mt-1 truncate text-[10px] text-emerald-700/80">
+                      {t("plugins.schedules.pluginManaged", {
+                        plugin: task.ownerPluginId,
+                        key: task.pluginScheduleKey,
+                      })}
+                    </div>
+                  ) : null}
+                  {task.lastRun ? (
+                    <div className={`mt-1 text-[10px] ${task.lastRun.status === "failed" ? "text-rose-600" : "text-slate-400"}`}>
+                      {t(`plugins.schedules.status.${task.lastRun.status}`)} · {new Date(task.lastRun.startedAt).toLocaleString()}
+                    </div>
+                  ) : null}
+                </div>
+                <Switch
+                  aria-label={t("plugins.schedules.toggle", { name: task.name })}
+                  checked={task.isEnabled}
+                  onCheckedChange={(isEnabled) => void updateTask(task.id, isEnabled)}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 px-2 text-slate-600"
+                  aria-label={t("plugins.schedules.historyFor", { name: task.name })}
+                  onClick={() => setHistoryTask(task)}
+                >
+                  <History className="h-3.5 w-3.5" />
+                  <span>{t("plugins.schedules.history")}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                  aria-label={t("plugins.schedules.delete", { name: task.name })}
+                  onClick={() => void deleteTask(task.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             );
           })}
-          <div className="flex items-center gap-3">
-            <Button size="sm" disabled={saving} onClick={() => void save()}>{saving ? t("common.saving") : t("common.save")}</Button>
-            {message ? <span className="text-xs text-slate-500" role="status">{message}</span> : null}
-          </div>
         </div>
+      ) : (
+        <p className="mt-4 text-xs text-slate-400">{t("plugins.schedules.empty")}</p>
       )}
+      <ScheduledTaskRunHistoryDialog
+        task={historyTask}
+        currentDeviceId={deviceId}
+        onOpenChange={(open) => {
+          if (!open) setHistoryTask(null);
+        }}
+      />
     </section>
   );
 };
 
+
 const PluginDetailView = ({
+  page,
   commands,
   extension,
   host,
@@ -146,6 +240,7 @@ const PluginDetailView = ({
   onUninstall,
   onUpdate,
 }: {
+  page: PluginDetailPage;
   commands: RegisteredPluginCommand[];
   extension: InstalledExtension;
   host: EdgeEverPluginHost;
@@ -186,78 +281,96 @@ const PluginDetailView = ({
         />
       </div>
 
-      <dl className="grid gap-3 rounded-lg bg-slate-50 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          [t("plugins.details.type"), manifest.type],
-          [t("plugins.details.version"), `v${manifest.version}`],
-          [t("plugins.details.source"), t(`plugins.sources.${sourceKey}`)],
-          [t("plugins.details.installedAt"), new Date(extension.installedAt).toLocaleString(i18n.language)],
-        ].map(([label, value]) => (
-          <div key={label} className="min-w-0">
-            <dt className="text-xs text-slate-400">{label}</dt>
-            <dd className="mt-1 truncate font-medium text-slate-700">{value}</dd>
-          </div>
-        ))}
-      </dl>
-
-      {extension.source.repositoryUrl ? (
-        <a className="inline-flex w-fit max-w-full items-center gap-2 text-sm text-slate-500 hover:text-emerald-700" href={extension.source.repositoryUrl} target="_blank" rel="noreferrer">
-          <GitHubMark className="h-4 w-4 shrink-0" />
-          <span className="truncate">{extension.source.repositoryUrl.replace("https://github.com/", "")}</span>
-          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-        </a>
+      {hasPluginSettings(manifest) ? (
+        <nav className="flex gap-2 border-b border-slate-200 pb-3" aria-label={t("plugins.details.navigation")}>
+          <Button asChild size="sm" variant={page === "overview" ? "soft" : "ghost"}>
+            <Link to={getPluginDetailPath(id)} aria-current={page === "overview" ? "page" : undefined}>{t("plugins.details.overview")}</Link>
+          </Button>
+          <Button asChild size="sm" variant={page === "settings" ? "soft" : "ghost"} className="gap-1.5">
+            <Link to={getPluginDetailPath(id, "settings")} aria-current={page === "settings" ? "page" : undefined}>
+              <Settings2 className="h-3.5 w-3.5" />
+              {t("plugins.settings.title")}
+            </Link>
+          </Button>
+        </nav>
       ) : null}
 
-      {manifest.type === "plugin" && manifest.permissions.length > 0 ? (
-        <section>
-          <h3 className="text-xs font-semibold text-slate-700">{t("plugins.details.permissions")}</h3>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {manifest.permissions.map((permission) => (
-              <span key={permission} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{permissionLabel(permission)}</span>
+      {page === "settings" && manifest.type === "plugin" ? (
+        <PluginSettingsSection key={`${id}:${manifest.version}`} host={host} manifest={manifest} />
+      ) : (
+        <>
+          <dl className="grid gap-3 rounded-lg bg-slate-50 p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              [t("plugins.details.type"), manifest.type],
+              [t("plugins.details.version"), `v${manifest.version}`],
+              [t("plugins.details.source"), t(`plugins.sources.${sourceKey}`)],
+              [t("plugins.details.installedAt"), new Date(extension.installedAt).toLocaleString(i18n.language)],
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-xs text-slate-400">{label}</dt>
+                <dd className="mt-1 truncate font-medium text-slate-700">{value}</dd>
+              </div>
             ))}
-          </div>
-        </section>
-      ) : null}
+          </dl>
 
-      {manifest.type === "plugin" && manifest.networkHosts?.length ? (
-        <section>
-          <h3 className="text-xs font-semibold text-slate-700">{t("plugins.details.networkHosts")}</h3>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {manifest.networkHosts.map((hostname) => (
-              <span key={hostname} className="rounded-full bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">{hostname}</span>
+          {extension.source.repositoryUrl ? (
+            <a className="inline-flex w-fit max-w-full items-center gap-2 text-sm text-slate-500 hover:text-emerald-700" href={extension.source.repositoryUrl} target="_blank" rel="noreferrer">
+              <GitHubMark className="h-4 w-4 shrink-0" />
+              <span className="truncate">{extension.source.repositoryUrl.replace("https://github.com/", "")}</span>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+            </a>
+          ) : null}
+
+          {manifest.type === "plugin" && manifest.permissions.length > 0 ? (
+            <section>
+              <h3 className="text-xs font-semibold text-slate-700">{t("plugins.details.permissions")}</h3>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {manifest.permissions.map((permission) => (
+                  <span key={permission} className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{permissionLabel(permission)}</span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {manifest.type === "plugin" && manifest.networkHosts?.length ? (
+            <section>
+              <h3 className="text-xs font-semibold text-slate-700">{t("plugins.details.networkHosts")}</h3>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {manifest.networkHosts.map((hostname) => (
+                  <span key={hostname} className="rounded-full bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">{hostname}</span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {extension.error ? <div className="text-sm text-rose-600">{extension.error}</div> : null}
+
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+            {update ? (
+              <Button size="sm" className="gap-1.5" disabled={pendingId === `update:${id}`} onClick={onUpdate}>
+                <Download className="h-3.5 w-3.5" />
+                {t("plugins.updates.update")}
+              </Button>
+            ) : null}
+            {commands.map((command) => (
+              <Button key={command.id} size="sm" variant="outline" className="gap-1.5" disabled={pendingId === `${id}:${command.id}`} onClick={() => onRunCommand(command)}>
+                <Play className="h-3.5 w-3.5" />
+                {command.title}
+              </Button>
             ))}
+            {panels.map((panel) => (
+              <Button key={panel.id} size="sm" variant="outline" className="gap-1.5" onClick={() => onOpenPanel(panel)}>
+                <PanelRightOpen className="h-3.5 w-3.5" />
+                {panel.title}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" className="ml-auto gap-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-700" disabled={pendingId === `remove:${id}`} onClick={onUninstall}>
+              <Trash2 className="h-3.5 w-3.5" />
+              {t("plugins.uninstall")}
+            </Button>
           </div>
-        </section>
-      ) : null}
-
-      {manifest.type === "plugin" ? <PluginSettingsSection host={host} manifest={manifest} /> : null}
-
-      {extension.error ? <div className="text-sm text-rose-600">{extension.error}</div> : null}
-
-      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
-        {update ? (
-          <Button size="sm" className="gap-1.5" disabled={pendingId === `update:${id}`} onClick={onUpdate}>
-            <Download className="h-3.5 w-3.5" />
-            {t("plugins.updates.update")}
-          </Button>
-        ) : null}
-        {commands.map((command) => (
-          <Button key={command.id} size="sm" variant="outline" className="gap-1.5" disabled={pendingId === `${id}:${command.id}`} onClick={() => onRunCommand(command)}>
-            <Play className="h-3.5 w-3.5" />
-            {command.title}
-          </Button>
-        ))}
-        {panels.map((panel) => (
-          <Button key={panel.id} size="sm" variant="outline" className="gap-1.5" onClick={() => onOpenPanel(panel)}>
-            <PanelRightOpen className="h-3.5 w-3.5" />
-            {panel.title}
-          </Button>
-        ))}
-        <Button size="sm" variant="ghost" className="ml-auto gap-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-700" disabled={pendingId === `remove:${id}`} onClick={onUninstall}>
-          <Trash2 className="h-3.5 w-3.5" />
-          {t("plugins.uninstall")}
-        </Button>
-      </div>
+        </>
+      )}
     </div>
   );
 };
@@ -267,11 +380,13 @@ export const PluginManagerCard = ({
   onClosePlugin,
   onOpenPlugin,
   selectedPluginId,
+  requestedPage = null,
 }: {
   host: EdgeEverPluginHost;
   onClosePlugin?: () => void;
   onOpenPlugin?: (pluginId: string) => void;
   selectedPluginId?: string | null;
+  requestedPage?: string | null;
 }) => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -424,9 +539,12 @@ export const PluginManagerCard = ({
       <CardContent className="grid gap-4 p-4 pt-0 sm:px-5 sm:pb-5">
         {error ? <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{error}</div> : null}
 
+        <ScheduledPluginTasksSection commands={snapshot.commands} />
+
         {selectedPluginId ? (
           selectedExtension ? (
             <PluginDetailView
+              page={getPluginDetailPage(selectedExtension.manifest, requestedPage)}
               extension={selectedExtension}
               host={host}
               update={updateQuery.data?.updates.find((update) => update.pluginId === selectedExtension.manifest.id)}
@@ -607,6 +725,14 @@ export const PluginManagerCard = ({
                   {extension.error ? <div className="mt-2 text-xs text-rose-600">{extension.error}</div> : null}
 
                   <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
+                    {hasPluginSettings(extension.manifest) ? (
+                      <Button asChild size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+                        <Link to={getPluginDetailPath(id, "settings")} aria-label={t("plugins.settings.open", { name: extension.manifest.name })}>
+                          <Settings2 className="h-3.5 w-3.5" />
+                          {t("plugins.settings.title")}
+                        </Link>
+                      </Button>
+                    ) : null}
                     {availableUpdate ? (
                       <Button
                         size="sm"

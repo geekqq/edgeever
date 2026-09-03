@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { lazy, Suspense, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AiPromptParameterKind,
@@ -40,6 +40,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { api, ApiRequestError } from "@/lib/api";
 import { WORKSPACE_PAGE_TITLE_CLASSNAME } from "@/lib/workspace-ui";
 import { formatDateTime } from "@/lib/utils";
+import { ExecutionCenterButton } from "@/components/execution/ExecutionCenterButton";
+
+const CompanionDialog = lazy(() => import("./CompanionDialog"));
 
 const emptyForm = () => ({
   name: "",
@@ -49,7 +52,7 @@ const emptyForm = () => ({
   resultMode: "both" as AiPromptResultMode,
 });
 
-export const AiPromptsPane = ({ onClose }: { onClose: () => void }) => {
+export const AiPromptsPane = ({ onClose, onOpenExecutionCenter, companionEnabled = false }: { onClose: () => void; onOpenExecutionCenter: () => void; companionEnabled?: boolean }) => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<AiPromptTemplate | null>(null);
@@ -59,6 +62,7 @@ export const AiPromptsPane = ({ onClose }: { onClose: () => void }) => {
   const [preview, setPreview] = useState<AiPromptTemplate | null>(null);
   const [restoreConfirmOpen, setRestoreConfirmOpen] = useState(false);
   const [restoreFeedback, setRestoreFeedback] = useState<string | null>(null);
+  const [companionOpen, setCompanionOpen] = useState(false);
 
   const promptsQuery = useQuery({
     queryKey: ["ai-prompts", i18n.resolvedLanguage],
@@ -168,7 +172,7 @@ export const AiPromptsPane = ({ onClose }: { onClose: () => void }) => {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-slate-50/60">
-      <header className="flex h-[calc(3.75rem+env(safe-area-inset-top))] shrink-0 items-end border-b border-slate-200/80 bg-white px-6 pb-3 pt-[env(safe-area-inset-top)] shadow-2xs lg:h-16 lg:items-center lg:pb-0 lg:pt-0">
+      <header className="flex h-[calc(3.75rem+env(safe-area-inset-top))] shrink-0 items-end justify-between border-b border-slate-200/80 bg-white px-6 pb-3 pt-[env(safe-area-inset-top)] shadow-2xs lg:h-16 lg:items-center lg:pb-0 lg:pt-0">
         <div className="flex min-w-0 items-center gap-3">
           <TooltipProvider delayDuration={0}>
             <Tooltip>
@@ -188,10 +192,18 @@ export const AiPromptsPane = ({ onClose }: { onClose: () => void }) => {
             <p className="mt-0.5 text-xs text-slate-500">{t("aiPrompts.description")}</p>
           </div>
         </div>
+        <ExecutionCenterButton onClick={onOpenExecutionCenter} />
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 lg:px-8 lg:py-8">
         <div className="mx-auto w-full max-w-5xl space-y-6">
+          {companionEnabled ? <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+            <p className="text-sm text-slate-700">{t("companion.intro")}</p>
+            <Button onClick={() => setCompanionOpen(true)}>{t("companion.title")}</Button>
+          </section> : null}
+          {companionOpen ? <Suspense fallback={<p role="status">{t("common.loading")}</p>}>
+            <CompanionDialog onClose={() => setCompanionOpen(false)} />
+          </Suspense> : null}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900">
