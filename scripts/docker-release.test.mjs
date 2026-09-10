@@ -82,6 +82,9 @@ describe("Docker release contract", () => {
     expect(runtimeStage).toContain(
       "COPY --from=build /app/dist/self-hosted/self-hosted-server.js ./scripts/self-hosted-server.js",
     );
+    expect(runtimeStage).toContain(
+      "ln -s self-hosted-server.js /app/scripts/self-hosted-server.mjs",
+    );
     expect(runtimeStage).toContain('org.opencontainers.image.title="EdgeEver"');
     expect(runtimeStage).toContain('org.opencontainers.image.licenses="AGPL-3.0-only"');
     expect(runtimeStage).not.toContain("node_modules");
@@ -96,6 +99,18 @@ describe("Docker release contract", () => {
     expect(dockerfile).toContain("ARG EDGE_EVER_BUILD_ID=unknown");
     expect(dockerfile).toContain("EDGE_EVER_BUILD_ID=${EDGE_EVER_BUILD_ID}");
     expect(runtimeStage).toContain('CMD ["bun", "scripts/self-hosted-server.js"]');
+    expect(readProjectFile("docs/deploy-docker.md")).toContain(
+      'Module not found "scripts/self-hosted-server.mjs"',
+    );
+    expect(readProjectFile("docs/deploy-docker.zh-CN.md")).toContain(
+      'Module not found "scripts/self-hosted-server.mjs"',
+    );
+    expect(readProjectFile("docs/self-hosting-architecture.md")).toContain(
+      "scripts/self-hosted-server.mjs",
+    );
+    expect(readProjectFile("docs/self-hosting-architecture.zh-CN.md")).toContain(
+      "scripts/self-hosted-server.mjs",
+    );
   });
 
   test("keeps authentication explicit in Compose", () => {
@@ -127,6 +142,21 @@ describe("Docker release contract", () => {
       'import { createS3CompatibleStorageAdapter } from',
     );
     expect(selfHosted).not.toContain("worker.fetch(");
+    expect(selfHosted).toContain("ensureSelfHostedCredentialSecrets");
+  });
+
+  test("persists credential encryption secrets on the data volume", () => {
+    const secrets = readProjectFile("scripts/self-hosted-secrets.mjs");
+    expect(secrets).toContain("edgeever-secrets.json");
+    expect(secrets).not.toContain("edgeever.sqlite");
+    expect(readProjectFile("docs/deploy-docker.md")).toContain("edgeever-secrets.json");
+    expect(readProjectFile("docs/deploy-docker.zh-CN.md")).toContain("edgeever-secrets.json");
+    expect(readProjectFile("docs/self-hosting-architecture.md")).toContain(
+      "NAS/GUI upgrades that drop container environment variables",
+    );
+    expect(readProjectFile("docs/self-hosting-architecture.zh-CN.md")).toContain(
+      "NAS/GUI 升级丢掉容器环境变量",
+    );
   });
 
   test("gates official image publishing and release auditing", () => {
@@ -150,6 +180,11 @@ describe("Docker release contract", () => {
     expect(workflow).toContain("docker buildx imagetools inspect");
     expect(workflow).toContain('docker pull "${GHCR_IMAGE_NAME}:${{ steps.image.outputs.audit_tag }}"');
     expect(workflow).toContain("container_name=edgeever-published-audit");
+    expect(workflow).toContain("test -s /app/scripts/self-hosted-server.js");
+    expect(workflow).toContain("test -s /app/scripts/self-hosted-server.mjs");
+    expect(workflow).toContain(
+      "cmp -s /app/scripts/self-hosted-server.js /app/scripts/self-hosted-server.mjs",
+    );
     expect(workflow).toContain("test ! -e /app/node_modules");
     expect(workflow).toContain("test ! -e /app/apps/api");
     expect(workflow).toContain("test ! -e /app/packages");

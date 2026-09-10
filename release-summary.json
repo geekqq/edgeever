@@ -1,21 +1,11 @@
 {
-  "version": "1.63.0",
+  "version": "1.64.1",
   "changes": {
     "en-US": [
-      "Import Markdown notes by dragging and dropping files, with more reliable note creation and sync handling.",
-      "Render visual notes consistently in shared pages and native viewers.",
-      "Add Linux AppImage automatic updates and make Linux downloads easier to find.",
-      "Improve desktop reliability with diagnostics for issue reports, safer file rendering, and dependable bundled plugin loading.",
-      "Refresh marketplace cards and add a Product Hunt support link in the personal center.",
-      "Reduce Docker runtime overhead with a bundled production runtime."
+      "Keep the historical Docker entry path so NAS/GUI upgrades that still start scripts/self-hosted-server.mjs can boot after v1.63."
     ],
     "zh-CN": [
-      "支持拖放导入 Markdown 笔记，并提升新建笔记与同步异常处理的可靠性。",
-      "在分享页面和原生客户端中一致呈现可视化笔记。",
-      "新增 Linux AppImage 自动更新，并让 Linux 下载入口更易发现。",
-      "通过问题反馈诊断信息、更安全的文件渲染和稳定的内置插件加载，提升桌面端可靠性。",
-      "优化插件市场卡片，并在个人中心加入 Product Hunt 支持入口。",
-      "通过内置生产运行时降低 Docker 运行开销。"
+      "Docker 镜像保留 v1.62 的启动路径，避免 NAS/GUI 升级后因找不到 scripts/self-hosted-server.mjs 而无法启动。"
     ]
   }
 }
