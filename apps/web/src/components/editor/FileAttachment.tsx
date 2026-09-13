@@ -47,7 +47,13 @@ const FileAttachmentNodeView = ({ node, updateAttributes }: NodeViewProps) => {
   );
 
   return (
-    <NodeViewWrapper as="span" className="edgeever-file-attachment-node" contentEditable={false}>
+    <NodeViewWrapper
+      as="span"
+      className="edgeever-file-attachment-node"
+      data-file-name={filename || label}
+      data-file-url={url}
+      contentEditable={false}
+    >
       <span className={cn("edgeever-file-viewer flex min-h-12 flex-col overflow-hidden rounded-xl border border-slate-200 bg-card shadow-sm", COMPACT_ATTACHMENT_WIDTH_CLASS)}>
         <span data-edgeever-resource-toolbar className="flex min-h-12 items-center gap-2 px-3">
           {isVideo ? (

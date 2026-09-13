@@ -1,9 +1,12 @@
 import { flip, offset, shift, type ComputePositionConfig } from "@floating-ui/react-dom";
+import { getAttachmentFilenameFromLabel, getResourceIdFromUrl } from "@edgeever/shared";
 
 /** File/PDF cards own in-card download and open-external controls. */
 export const ATTACHMENT_CARD_SELECTOR = ".edgeever-file-viewer, .edgeever-pdf-viewer";
 export const ATTACHMENT_TOOLBAR_SELECTOR = "[data-edgeever-resource-toolbar]";
 export const ATTACHMENT_ACTION_SELECTOR = ".pdf-viewer-action";
+export const ATTACHMENT_FILE_NAME_ATTR = "data-file-name";
+export const ATTACHMENT_FILE_URL_ATTR = "data-file-url";
 const ATTACHMENT_LINK_SELECTOR =
   'a.edgeever-attachment-link, a[href*="/api/v1/resources/"], a[href^="edgeever-resource://"]';
 
@@ -55,6 +58,19 @@ export const getAttachmentHoverTarget = (target: EventTarget | null): Attachment
 
 export const getAttachmentLinkFromEventTarget = (target: EventTarget | null) =>
   getAttachmentHoverTarget(target)?.link ?? null;
+
+export const resolveAttachmentMenuFilename = (hover: AttachmentHoverTarget, href: string) => {
+  const namedHost = hover.card?.closest(`[${ATTACHMENT_FILE_NAME_ATTR}]`) ?? hover.card;
+  const named = namedHost?.getAttribute(ATTACHMENT_FILE_NAME_ATTR)?.trim();
+  if (named) return getAttachmentFilenameFromLabel(named) || named;
+
+  const download = hover.link.getAttribute("download")?.trim();
+  if (download) return getAttachmentFilenameFromLabel(download) || download;
+
+  return getAttachmentFilenameFromLabel(hover.link.textContent || "")
+    || getResourceIdFromUrl(href)
+    || "attachment";
+};
 
 export const isInsideAttachmentHoverRegion = (
   origin: AttachmentHoverTarget,

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { computePosition } from "@floating-ui/react-dom";
-import { attachmentResourceMenuPosition } from "./attachment-resource-menu.ts";
+import {
+  attachmentResourceMenuPosition,
+  resolveAttachmentMenuFilename,
+} from "./attachment-resource-menu.ts";
 
 const menuSize = { width: 300, height: 42 };
 const viewport = { x: 0, y: 0, width: 1024, height: 768 };
@@ -51,5 +54,51 @@ describe("attachment resource menu positioning", () => {
     ]) {
       expectOutsideToolbar(await positionMenu(toolbar), toolbar);
     }
+  });
+});
+
+describe("attachment menu filename", () => {
+  const hover = ({ filename, download, text, href }) => ({
+    card: filename == null ? null : {
+      closest: () => ({ getAttribute: () => filename }),
+      getAttribute: () => filename,
+    },
+    link: {
+      getAttribute: (name) => name === "download" ? download ?? null : name === "href" ? href : null,
+      textContent: text ?? "",
+    },
+    toolbar: null,
+  });
+
+  test("uses the card filename when the hover target is a video action link", () => {
+    expect(resolveAttachmentMenuFilename(
+      hover({
+        filename: "clip.mp4",
+        download: "clip.mp4",
+        href: "/api/v1/resources/res_video/blob",
+      }),
+      "/api/v1/resources/res_video/blob",
+    )).toBe("clip.mp4");
+  });
+
+  test("falls back to the download attribute when the card has no filename", () => {
+    expect(resolveAttachmentMenuFilename(
+      hover({
+        filename: "",
+        download: "walkthrough.mp4",
+        href: "/api/v1/resources/res_video/blob",
+      }),
+      "/api/v1/resources/res_video/blob",
+    )).toBe("walkthrough.mp4");
+  });
+
+  test("still reads a legacy attachment link label", () => {
+    expect(resolveAttachmentMenuFilename(
+      hover({
+        text: "附件：notes.zip",
+        href: "/api/v1/resources/res_zip/blob",
+      }),
+      "/api/v1/resources/res_zip/blob",
+    )).toBe("notes.zip");
   });
 });
