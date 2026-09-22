@@ -1,20 +1,23 @@
 {
-  "version": "1.80.0",
+  "version": "1.82.0",
   "changes": {
     "en-US": [
-      "Add block drag handles and formula insertion in the editor, with caret-aware insertion and a clearer table icon.",
-      "Show the Mac product name and physical screen resolution more accurately in system information.",
-      "Make emptying the trash reliable when it is already empty."
+      "Improve diagram connector routing and label clarity, especially for architecture and diagonal edges.",
+      "Remember expanded notebook folders across sessions.",
+      "Format copied system information more clearly and confirm when it has been copied.",
+      "Localize plugin marketplace metadata and source official plugin details from release metadata."
     ],
     "zh-CN": [
-      "编辑器新增内容块拖拽手柄与公式插入，并支持在光标处插入公式及更清晰的表格图标。",
-      "系统信息现在能更准确地显示 Mac 产品名称和物理屏幕分辨率。",
-      "修复废纸篓已为空时再次清空可能失败的问题。"
+      "改进图表连接线的路由与标签清晰度，尤其优化架构图和斜向连线。",
+      "在不同会话之间记住笔记本文件夹的展开状态。",
+      "优化复制后的系统信息格式，并在复制成功后提供明确反馈。",
+      "本地化插件市场元数据，并从 Release 元数据获取官方插件信息。"
     ],
     "ja": [
-      "エディターにブロックのドラッグハンドルと数式挿入を追加し、カーソル位置への挿入と分かりやすい表アイコンに対応しました。",
-      "システム情報でMacの製品名と物理画面解像度をより正確に表示するようになりました。",
-      "ゴミ箱がすでに空の場合でも、空にする操作が失敗しないよう修正しました。"
+      "図表のコネクター経路とラベルの見やすさを改善し、特にアーキテクチャ図と斜めのエッジを最適化しました。",
+      "セッションをまたいでノートブックフォルダーの展開状態を記憶するようになりました。",
+      "コピーしたシステム情報を読みやすく整形し、コピー完了時に明確なフィードバックを表示します。",
+      "プラグインマーケットプレイスのメタデータをローカライズし、公式プラグイン情報をリリースメタデータから取得するようにしました。"
     ]
   }
 }
