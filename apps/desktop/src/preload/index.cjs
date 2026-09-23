@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld("edgeeverDesktop", Object.freeze({
   getSessionToken: () => ipcRenderer.sendSync("desktop:session-token-sync"),
   copyText: (value) => ipcRenderer.invoke("desktop:copy-text", value),
   copyHtml: (html, plainText) => ipcRenderer.invoke("desktop:copy-html", { html, plainText }),
+  copyImage: (bytes) => ipcRenderer.invoke("desktop:copy-image", bytes),
   setSessionToken: (value) => ipcRenderer.invoke("desktop:set-session-token", value),
   clearSessionToken: () => ipcRenderer.invoke("desktop:clear-session-token"),
   publicNetworkFetch: (requestId, input) => ipcRenderer.invoke("desktop:public-network-fetch", requestId, input),
@@ -101,6 +102,17 @@ contextBridge.exposeInMainWorld("edgeeverDesktop", Object.freeze({
       ipcRenderer.send("desktop:renderer-ready");
     }
     return () => ipcRenderer.removeListener("desktop:import-markdown", listener);
+  },
+  readWeChatImportMedia: (importId, mediaId) => ipcRenderer.invoke("desktop:read-wechat-import-media", importId, mediaId).then((file) => ({
+    filename: file.filename,
+    mimeType: file.mimeType,
+    bytes: normalizeIpcBytes(file.bytes),
+  })),
+  finishWeChatImport: (importId) => ipcRenderer.invoke("desktop:finish-wechat-import", importId),
+  onImportWeChatChat: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("desktop:import-wechat-chat", listener);
+    return () => ipcRenderer.removeListener("desktop:import-wechat-chat", listener);
   },
   onImportScreenshot: (callback) => {
     if (screenshotImportListener) {
