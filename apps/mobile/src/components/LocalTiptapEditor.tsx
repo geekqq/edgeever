@@ -56,6 +56,7 @@ import {
   DEFAULT_IMAGE_WIDTH_PERCENT,
   NEW_IMAGE_WIDTH_PERCENT,
   IMAGE_WIDTH_PRESETS,
+  PHONE_IMAGE_FILL_CSS,
   clampImageWidth,
   parseImageWidth,
 } from "@edgeever/shared/image-display";
@@ -3128,7 +3129,7 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   .edgeever-editor-content ul[data-type="taskList"] { margin: 0 0 var(--editor-paragraph-spacing); padding-left: 0; list-style: none; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label { display: inline-flex; flex: 0 0 auto; align-items: center; margin-top: 3px; user-select: none; }
-  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label input { width: 18px; height: 18px; margin: 0; border-radius: 3px; accent-color: #16a06e; }
+  .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > label input { width: 18px; height: 18px; margin: 0; border-radius: 3px; accent-color: #1a1d21; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > div { min-width: 0; flex: 1 1 auto; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked] > div > p { margin-bottom: 0; }
   .edgeever-editor-content ul[data-type="taskList"] li[data-checked="true"] > div > p { color: #94a3b8; text-decoration: line-through; }
@@ -3358,5 +3359,6 @@ const getEditorStyles = (theme: "light" | "dark", options?: { viewer?: boolean }
   .edgeever-image-upload-spinner { width: 18px; height: 18px; border: 2px solid ${theme === "dark" ? "#475569" : "#cbd5e1"}; border-top-color: #0f766e; border-radius: 999px; animation: edgeever-image-upload-spin 0.8s linear infinite; }
   @keyframes edgeever-image-upload-spin { to { transform: rotate(360deg); } }
   .edgeever-editor-content hr { margin: 24px 0; border: 0; border-top: 1px solid #cbd5e1; }
+  ${PHONE_IMAGE_FILL_CSS}
 `;
 };
