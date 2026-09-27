@@ -40,7 +40,7 @@ export const installPhoneImageFillStyle = () => {
   const style = document.createElement("style");
   style.dataset.edgeeverPhoneImageFill = "true";
   style.textContent = PHONE_IMAGE_FILL_CSS;
-  document.head.append(style);
+  document.head.appendChild(style);
 };
 
 export type ImageWidthPresetId = (typeof IMAGE_WIDTH_PRESETS)[number]["id"];
