@@ -1,4 +1,4 @@
-export type DesktopAcpAdapterId = "codex" | "antigravity" | "grokBuild" | "deepseekHarness" | "piAgent" | "workbuddyCn" | "workbuddyIntl";
+export type DesktopAcpAdapterId = "codex" | "claudeCode" | "antigravity" | "openClaw" | "hermesAgent" | "grokBuild" | "deepseekHarness" | "piAgent" | "workbuddyCn" | "workbuddyIntl";
 export type DesktopAcpAdapterState = "not_installed" | "installing" | "needs_login" | "available" | "failed";
 
 export type DesktopAcpPromptCapabilities = {
@@ -16,6 +16,25 @@ export type DesktopAcpAdapter = {
   managed?: boolean;
   updateError?: string;
   authMethods?: Array<{ id: string; name: string }>;
+};
+
+export const displayedDesktopAcpAdapter = ({
+  id,
+  path,
+  listed,
+  probed,
+}: {
+  id: DesktopAcpAdapterId;
+  path: string;
+  listed: DesktopAcpAdapter[];
+  probed: DesktopAcpAdapter | null;
+}): DesktopAcpAdapter | undefined => {
+  const current = listed.find((adapter) => adapter.id === id);
+  const checked = probed?.id === id ? probed : undefined;
+  if (id === "antigravity" && path.trim()) return checked;
+  if (current?.state === "installing" || (current?.managed && (!checked?.managed || current.version !== checked.version))) return current;
+  if (current?.state === "needs_login" && checked?.state === "available") return current;
+  return checked ?? current;
 };
 
 export type DesktopAcpAttachment = {
