@@ -247,10 +247,10 @@ content_text      搜尋、摘要和索引使用
 
 ## MCP
 
-在 **個人中心** -> **MCP 設定** 中建立 API Token 並交給 AI Agent，即可讓 Agent 在帳號授權範圍內安全地管理你的知識庫。系統同時支援文字筆記與圖表筆記（涵蓋心智圖、流程圖和架構圖三種），支援對這些筆記進行完整的增刪改查；Agent 還可根據欄位方案建立多維表格筆記、編輯欄位，並讀取、新增、修改和刪除表格記錄，同時管理筆記範本與 AI 指令。
+在 **個人中心** -> **API / MCP** 中建立 API Token 並一鍵複製 Remote MCP 設定，即可讓 Claude Code、Cursor、Antigravity、OpenClaw 等 AI Agent 在帳號授權範圍內安全管理你的知識庫。系統支援文字筆記、圖表筆記（心智圖、流程圖與架構圖）和多維表格筆記的完整增刪改查，Agent 還可管理筆記本目錄、標籤、附件、歷史版本、筆記範本與 AI 指令。
 
 > 💡 **情境啟發：**
-> 讓 AI 真正成為你的知識管家與創作外腦——不僅能將方案秒級產生為可互動的心智圖與架構圖，還能為 AI Agent 提供私有脈絡。憑藉 EdgeEver 強大的富文字編輯與精美排版能力，AI 協同沉澱的不再是冰冷文字，而是結構工整、排版優雅、隨時可一鍵分發的高品質知識資產。
+> 讓 AI 真正成為你的知識管家與創作外腦——不僅能將方案秒級產生為可互動的心智圖、流程圖、架構圖與多維表格，還能為 AI Agent 提供私有脈絡。憑藉 EdgeEver 強大的富文字編輯與精美排版能力，AI 協同沉澱的不再是冰冷文字，而是結構工整、排版優雅、隨時可一鍵分發的高品質知識資產。
 
 ## 圖片壓縮規則
 
@@ -282,7 +282,6 @@ Web、PWA 與桌面版會在停止編輯 30 秒後上傳筆記，並在頁面可
 
 - EdgeEver 的筆記產品設計也參考了 [Evernote（印象筆記）](https://evernote.com/) 等成熟筆記工具的公開產品體驗。相關功能由 EdgeEver 獨立設計與實作。
 - 心智圖與視覺化圖表筆記的產品設計參考了 [XMind](https://xmind.com/) 和 [ProcessOn](https://www.processon.com/) 等圖表工具的公開產品體驗。相關功能由 EdgeEver 獨立設計與實作。
-- 編輯器主題的排版架構、標題層級與章節結構參考了 [obsidian-minimal](https://github.com/kepano/obsidian-minimal)、[Outline](https://github.com/outline/outline) 和 [墨格](https://moyufang.cn/editor) 的公開方案。名稱、素材與實作均由 EdgeEver 獨立完成。
 
 ## 商標與品牌使用
 
