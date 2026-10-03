@@ -69,6 +69,7 @@ import {
   type ChatThreadSummary,
 } from "@/lib/local-agent-threads";
 import { LocalAgentImageStore } from "@/lib/local-agent-images";
+import { appendLocalAgentText } from "@/lib/local-agent-response";
 import { sidebarRevealTransition } from "@/lib/motion";
 import {
   SELECTION_AI_LANGUAGES,
@@ -132,6 +133,8 @@ type LocalTurn = {
   threadId: string;
   message: string;
   response: string;
+  responseMessageId?: string;
+  adapterId?: string;
   reasoning: string;
   tools: LocalToolRow[];
   images: LocalImage[];
@@ -921,7 +924,7 @@ function AiSidebarSession({
     if (!turnId || !alive.current) return;
     if (event.type === "text-delta") {
       setLocalTurns((previous) => previous.map((turn) => turn.id === turnId && turn.status !== "cancelled"
-        ? { ...turn, response: turn.response + event.text }
+        ? appendLocalAgentText(turn, event.text, event.messageId, turn.adapterId === "codex")
         : turn));
       return;
     }
@@ -1133,13 +1136,20 @@ function AiSidebarSession({
         }));
         const activeLocalThreadId = localThreadIdRef.current;
         const transcript = localAgentTranscript(localTurnsRef.current, activeLocalThreadId);
-        const noteContext = sidebarLocalContextText(focusAtSend, useCurrentNote);
+        const recentUserMessages = localTurnsRef.current
+          .filter((turn) => turn.threadId === activeLocalThreadId && turn.status === "completed")
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+          .slice(0, 6).map((turn) => turn.message);
+        const noteContext = sidebarLocalContextText(focusAtSend, useCurrentNote, {
+          message: text, recentUserMessages, fallbackLocale: companionLocale(i18n.resolvedLanguage),
+        });
         writeStorage(AI_SIDEBAR_LOCAL_THREAD_KEY, activeLocalThreadId);
         setLocalTurns((previous) => [...previous, {
           id,
           threadId: activeLocalThreadId,
           message: text,
           response: "",
+          adapterId: adapter.id,
           reasoning: "",
           tools: [],
           images: [],
@@ -1552,7 +1562,6 @@ function AiSidebarSession({
             <ConversationEmptyState
               icon={<Sparkles className="h-6 w-6" />}
               title={t("aiAssistant.sidebar.emptyTitle")}
-              description={t("aiAssistant.sidebar.emptyDescription")}
             />
           ) : null}
           {visibleCompanion ? threadTurns.map((turn) => (
