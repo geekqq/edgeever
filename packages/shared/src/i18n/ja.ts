@@ -1487,6 +1487,15 @@ export const ja = {
       imageSaveFailed: "画像を端末に保存できませんでした。今すぐダウンロードしてください。ページを閉じると失われる可能性があります。",
     },
     agentSource: {
+      configure: "モデルと Agent を設定",
+      switchNoteAgentHint: "選択した Agent が、このインフォグラフィックの次の編集を処理します。",
+      optionUnavailable: "利用不可",
+
+      switch: "AI を切り替え",
+      newAgentThread: "外部 Agent への切り替えは新しい会話を開始します。以前の会話は履歴に残ります。",
+      noModels: "設定で AI モデルを構成してください。",
+      switchUnavailable: "Agent は利用できません。設定で接続を確認してください。",
+
       title: "エージェントの動作モード",
       description: "内蔵 Agent を使用するか、このマシンで動作する Agent (ACP) に接続します。",
       localDisabled: "デスクトップアプリが必要です。",
@@ -2015,6 +2024,12 @@ export const ja = {
     previous: "前の PDF",
     next: "次の PDF",
   },
+  wordViewer: {
+    loading: "Word のプレビューを読み込み中…",
+    unavailable: "この Word 文書はプレビューできません。ダウンロードするか、外部で開くことはできます。",
+    previewTooLarge: "10 MiB 超のためプレビューしません",
+    previewLabel: "Word プレビュー：{{filename}}",
+  },
   audioPlayer: {
     label: "音声プレーヤー：{{filename}}",
     unavailable: "この端末ではこの音声形式を再生できません。ダウンロードするか、外部で開くことはできます。",
@@ -2162,7 +2177,6 @@ export const ja = {
       theme: "テーマ",
       background: "背景",
       themes: {
-        slate: "クラシックライト",
         aurora: "オーロラ",
         sunset: "夕焼け",
         midnight: "ミッドナイト",
@@ -2284,6 +2298,17 @@ export const ja = {
     expandOutlineHeading: "{{name}} を開く",
   },
   sharing: {
+    managementTitle: "共有の管理",
+    managementDescription: "公開リンクでアクセスできるノートを確認し、共有設定を管理します。",
+    managementLoading: "共有ノートを読み込み中",
+    managementLoadFailed: "最新の共有一覧を読み込めませんでした。接続を確認して再試行してください。",
+    managementEmpty: "現在共有中のノートはありません。",
+    viewAll: "すべての共有を見る",
+    retry: "再試行",
+    loadMore: "さらに読み込む",
+    sharedOn: "共有日 {{date}}",
+    passwordProtected: "パスワード保護あり",
+    unknownNotebook: "不明なノートブック",
     action: "ノートを共有",
     afterSync: "同期後にノートを共有",
     active: "共有中",

@@ -1487,6 +1487,15 @@ export const zhCN = {
       imageSaveFailed: "图片暂时无法保存到本机。请先下载图片，关闭页面后可能无法找回。",
     },
     agentSource: {
+      configure: "配置模型与 Agent",
+      switchNoteAgentHint: "切换后由所选 Agent 继续处理当前信息图。",
+      optionUnavailable: "不可用",
+
+      switch: "切换 AI",
+      newAgentThread: "切换外部 Agent 会开启新对话，原对话保留在历史中。",
+      noModels: "请在设置中配置 AI 模型。",
+      switchUnavailable: "Agent 暂不可用，请在设置中检查连接。",
+
       title: "Agent 运行模式",
       description: "使用应用内置 Agent，或连接本机运行的 Agent (ACP)。",
       localDisabled: "仅支持桌面客户端。",
@@ -2015,6 +2024,12 @@ export const zhCN = {
     previous: "上一个 PDF",
     next: "下一个 PDF",
   },
+  wordViewer: {
+    loading: "正在加载 Word 预览…",
+    unavailable: "无法预览此 Word 文档，你仍可下载或在外部打开。",
+    previewTooLarge: "超过 10 MiB，不在笔记内预览",
+    previewLabel: "Word 预览：{{filename}}",
+  },
   audioPlayer: {
     label: "音频播放器：{{filename}}",
     unavailable: "当前设备无法播放此音频格式，你仍可下载或在外部打开。",
@@ -2160,7 +2175,6 @@ export const zhCN = {
       theme: "主题风格",
       background: "背景",
       themes: {
-        slate: "经典浅色",
         aurora: "极光渐变",
         sunset: "暮色晚霞",
         midnight: "暗夜曜石",
@@ -2282,6 +2296,17 @@ export const zhCN = {
     expandOutlineHeading: "展开 {{name}}",
   },
   sharing: {
+    managementTitle: "分享管理",
+    managementDescription: "查看当前仍可通过公开链接访问的笔记，并管理各自的分享设置。",
+    managementLoading: "正在读取分享列表",
+    managementLoadFailed: "无法获取最新分享列表，请检查网络后重试。",
+    managementEmpty: "当前没有正在分享的笔记。",
+    viewAll: "查看全部分享",
+    retry: "重试",
+    loadMore: "加载更多",
+    sharedOn: "分享于 {{date}}",
+    passwordProtected: "已设密码",
+    unknownNotebook: "未知笔记本",
     action: "分享笔记",
     afterSync: "同步后可分享笔记",
     active: "正在分享",
@@ -2721,7 +2746,7 @@ export const zhCN = {
     sidebarAndroidTitle: "在 Google Play 下载 EdgeEver 安卓端",
     sidebarIos: "iOS",
     sidebarIosBadge: "App Store",
-    sidebarIosRegionBadge: "非大陆区",
+    sidebarIosRegionBadge: "海外 ID",
     sidebarIosTitle: "在 App Store 下载 EdgeEver iOS 端（仅支持非大陆区 Apple ID）",
     sidebarIosAvailability: "仅支持非中国大陆区 Apple ID",
     sidebarChromeEdge: "Chrome / Edge",
