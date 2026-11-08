@@ -32,34 +32,9 @@ jobs:
 
           git merge --no-commit --allow-unrelated-histories upstream/main || true
 
-          # 只把那两个“被你本地删掉、但上游改过”的 workflow 文件取回上游版本。
-          # 先把冲突列出来，确认只有两个文件，避免把别的文件也改掉。
-          UNRESOLVED=$(git diff --name-only --diff-filter=U -- .github/workflows || true)
-          if [ -n "$UNRESOLVED" ]; then
-            echo "$UNRESOLVED" | while IFS= read -r path; do
-              case "$path" in
-                .github/workflows/desktop-update-verification.yml|.github/workflows/test.yml)
-                  git checkout --theirs -- "$path"
-                  git add -- "$path"
-                  ;;
-              esac
-            done
-          fi
-          
-          # 如果脚本本来就打算“保留 fork 侧 workflow”，那你通常是拿上游的这两个文件
-          #（否则上游改了、你 fork 那边没同步），提交前至少把_workflows 目录_收拾清楚。
-          if git diff --cached --quiet; then
-            echo 'Already up to date.'
-            exit 0
-          fi
-          
-          git commit --no-edit
-          git push origin main
-
-          # Keep the fork's own workflow files so the GitHub App token does not
-          # need workflow-write permission, and so fork-specific deploy jobs stay intact.
-          # Resolve any workflow merge conflicts in favor of the fork's current files,
-          # then fully restore the workflow directory from HEAD.
+          # Keep the fork's own workflow files. Resolve every conflict inside
+          # .github/workflows in favor of the fork (HEAD), including modify/delete
+          # conflicts where the fork deleted a file that upstream modified.
           while IFS= read -r path; do
             [ -n "$path" ] || continue
             if git cat-file -e ":2:${path}" 2>/dev/null; then
@@ -69,8 +44,13 @@ jobs:
               git rm -f -- "$path"
             fi
           done < <(git diff --name-only --diff-filter=U -- .github/workflows)
+
+          # Normalize the whole workflow directory back to the fork's version, so the
+          # push stays within the default token's contents:write permission, which
+          # cannot create or update workflow files.
           git restore --source=HEAD --staged --worktree .github/workflows
 
+          # Any conflict outside .github/workflows needs a human.
           if git diff --name-only --diff-filter=U | grep -q .; then
             echo 'Unresolved merge conflicts remain:'
             git diff --name-only --diff-filter=U
