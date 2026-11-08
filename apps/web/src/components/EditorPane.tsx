@@ -1,3 +1,4 @@
+import { autoUpdate } from "@floating-ui/react-dom";
 import { AI_ASSISTANT_LAUNCHER_POSITION } from "@/lib/ai-assistant-launcher";
 import { editorClipboardTextSerializer } from "@/lib/editor-clipboard";
 import { useRef, useState, useEffect, useLayoutEffect, useCallback, useMemo, lazy, Suspense, type CSSProperties, type FocusEvent as ReactFocusEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
@@ -234,6 +235,7 @@ import {
   getRichTextAiSelectionContext,
   getRichTextAiSelectionReplacement,
 } from "@/lib/ai-selection-replacement";
+import { hashAiDraftSource, type AiDraftEditorApi, type AiDraftSelectionSnapshot } from "@/lib/ai-body-draft-store";
 import {
   AI_SELECTION_MENU_CHANGED_EVENT,
   readAiSelectionMenuPreference,
@@ -331,6 +333,8 @@ type EditorPaneProps = {
   onCreatePoster?: (memo: MemoDetail, text: string) => Promise<void>;
   memo: MemoDetail | null;
   repository: EdgeEverRepository;
+  /** `instance|user` scope of this device's local data; keeps unapplied AI drafts (#652 PR B). */
+  localDataScope?: string;
   desktopFocusMode: boolean;
   onToggleDesktopFocusMode: () => void;
   noteProse: ResolvedNoteProse;
@@ -416,6 +420,7 @@ export const EditorPane = (props: EditorPaneProps) => {
 const RichEditorPane = ({
   memo,
   repository,
+  localDataScope,
   desktopFocusMode,
   onToggleDesktopFocusMode,
   noteProse,
@@ -626,6 +631,23 @@ const RichEditorPane = ({
   });
   const [editorScrollContainer, setEditorScrollContainer] = useState<HTMLDivElement | null>(null);
   const [collapsedOutlineAnchor, setCollapsedOutlineAnchor] = useState<HTMLDivElement | null>(null);
+  const [outlineContent, setOutlineContent] = useState<HTMLElement | null>(null);
+  const [aiLauncher, setAiLauncher] = useState<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    if (!outlineContent || !aiLauncher) return;
+    const container = aiLauncher.offsetParent;
+    if (!(container instanceof HTMLElement)) return;
+    // Follow the visible content edge, excluding the outline's scrollbar and
+    // inner padding. Frame tracking also covers the reading-gutter transition.
+    return autoUpdate(outlineContent, aiLauncher, () => {
+      const contentRight = outlineContent.getBoundingClientRect().right
+        - Number.parseFloat(getComputedStyle(outlineContent).paddingRight || "0");
+      aiLauncher.style.right = `${container.getBoundingClientRect().right - contentRight}px`;
+    }, { animationFrame: true });
+  }, [outlineContent, aiLauncher]);
+  useLayoutEffect(() => {
+    if (!outlineContent) aiLauncher?.style.removeProperty("right");
+  }, [outlineContent, aiLauncher]);
   const [editorScrollbarGutter, setEditorScrollbarGutter] = useState(0);
   const [headerTitleSlot, setHeaderTitleSlot] = useState<HTMLDivElement | null>(null);
   const [headerStatusCluster, setHeaderStatusCluster] = useState<HTMLDivElement | null>(null);
@@ -1925,6 +1947,19 @@ const RichEditorPane = ({
       );
       if (clickedEmptyCanvas) {
         editorCanvasInteractionVersionRef.current += 1;
+        if (
+          target === event.currentTarget &&
+          !isMobileViewport &&
+          !effectiveReadOnly &&
+          isEditorReady(editor) &&
+          editor.isEditable &&
+          editor.isEmpty &&
+          proseMirror &&
+          event.clientY >= proseMirror.getBoundingClientRect().bottom
+        ) {
+          editor.view.focus();
+          return;
+        }
         // This handler runs in capture phase, before ProseMirror translates the
         // click coordinates into a selection. In a desktop WebView that later
         // selection can map the empty area beside/below a block image back onto
@@ -1941,7 +1976,7 @@ const RichEditorPane = ({
         });
       }
     }
-  }, [editor, onOpenMemo, showEditorLinkOpenHint]);
+  }, [editor, effectiveReadOnly, isMobileViewport, onOpenMemo, showEditorLinkOpenHint]);
 
   const handleEditorFocusCapture = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     if (showAttachmentMenu(event.target)) return;
@@ -2223,7 +2258,8 @@ const RichEditorPane = ({
         from: selection.from,
         to: selection.to,
         isInline: true,
-        documentFingerprint: "",
+        // The whole source, so a later replace can tell that the document moved under the selection.
+        documentFingerprint: sourceEditor.sliceText(0, sourceEditor.getDocumentLength()),
         mode: "markdown",
       };
     } else if (isEditorReady(editor)) {
@@ -2282,6 +2318,97 @@ const RichEditorPane = ({
     setSelectionPin(null);
     return true;
   }, [markDirty, setMarkdownSource]);
+
+  /**
+   * What the AI sidebar may do with a body draft (#652 PR B). A selection target applies only
+   * while the text at it is unchanged; the sidebar asks the user before using a new target.
+   */
+  const aiDraftEditor = useMemo<AiDraftEditorApi | null>(() => {
+    if (effectiveReadOnly || useMobilePlainTextEditor) return null;
+    const richSnapshotIsCurrent = (snapshot: AiDraftSelectionSnapshot) => {
+      const currentEditor = editorRef.current;
+      if (!isEditorReady(currentEditor)) return false;
+      const size = currentEditor.state.doc.content.size;
+      return snapshot.from >= 0 && snapshot.to > snapshot.from && snapshot.to <= size
+        && hashAiDraftSource(getAiDocumentFingerprint(currentEditor.state.doc.toJSON())) === snapshot.documentHash;
+    };
+    const applyAtSelection = (snapshot: AiDraftSelectionSnapshot, markdown: string, placement: "replace" | "after") => {
+      const currentMemo = memoRef.current;
+      const body = markdown.trim();
+      if (!currentMemo || !body) return false;
+      if (snapshot.mode === "markdown") {
+        const sourceEditor = markdownSourceEditorRef.current;
+        if (!useMarkdownSourceEditor || !sourceEditor) return false;
+        if (sourceEditor.sliceText(snapshot.from, snapshot.to) !== snapshot.text) return false;
+        // The same text can move to the old offsets after other edits; any change asks again.
+        if (hashAiDraftSource(sourceEditor.sliceText(0, sourceEditor.getDocumentLength())) !== snapshot.documentHash) return false;
+        const insertion = placement === "replace" ? body : `${snapshot.text.includes("\n") ? "\n\n" : " "}${body}`;
+        const [from, to] = placement === "replace" ? [snapshot.from, snapshot.to] : [snapshot.to, snapshot.to];
+        const next = `${sourceEditor.sliceText(0, from)}${insertion}${sourceEditor.sliceText(to, sourceEditor.getDocumentLength())}`;
+        sourceEditor.insertText(insertion, from, to);
+        setMarkdownSource(next);
+        markDirty();
+        return true;
+      }
+      const currentEditor = editorRef.current;
+      if (useMarkdownSourceEditor || !isEditorReady(currentEditor) || !richSnapshotIsCurrent(snapshot)) return false;
+      const content = getRichTextAiSelectionReplacement(placement === "after" && snapshot.isInline ? ` ${body}` : body, snapshot.isInline);
+      const range = placement === "replace" ? { from: snapshot.from, to: snapshot.to } : snapshot.to;
+      return currentEditor.chain().focus().insertContentAt(range, content).run();
+    };
+    return {
+      noteMarkdown: () => getCurrentMarkdownForAi(),
+      replaceNote: (markdown) => {
+        const currentEditor = editorRef.current;
+        if (useMarkdownSourceEditor) setMarkdownSource(markdown);
+        else if (isEditorReady(currentEditor)) currentEditor.commands.setContent(markdownToDoc(markdown));
+        else return false;
+        markDirty();
+        return true;
+      },
+      appendToNote: (markdown) => {
+        const body = markdown.trim();
+        if (!body) return false;
+        const currentEditor = editorRef.current;
+        if (useMarkdownSourceEditor) {
+          setMarkdownSource((current) => `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${body}\n`);
+        } else if (isEditorReady(currentEditor)) {
+          currentEditor.chain().focus().insertContentAt(currentEditor.state.doc.content.size, getRichTextAiSelectionReplacement(body, false)).run();
+        } else {
+          return false;
+        }
+        markDirty();
+        return true;
+      },
+      replaceSelection: (snapshot, markdown) => applyAtSelection(snapshot, markdown, "replace"),
+      insertAfterSelection: (snapshot, markdown) => applyAtSelection(snapshot, markdown, "after"),
+      currentSelection: () => {
+        if (useMarkdownSourceEditor) {
+          const sourceEditor = markdownSourceEditorRef.current;
+          if (!sourceEditor) return null;
+          const selection = sourceEditor.getSelection();
+          const text = sourceEditor.sliceText(selection.from, selection.to);
+          if (!text.trim() || selection.to <= selection.from) return null;
+          return {
+            text, from: selection.from, to: selection.to, isInline: true, mode: "markdown",
+            documentHash: hashAiDraftSource(sourceEditor.sliceText(0, sourceEditor.getDocumentLength())),
+          };
+        }
+        const currentEditor = editorRef.current;
+        if (!isEditorReady(currentEditor)) return null;
+        const context = getRichTextAiSelectionContext(currentEditor.state.doc, currentEditor.state.selection);
+        if (!context?.contentMarkdown.trim()) return null;
+        return {
+          text: context.contentMarkdown,
+          from: context.from,
+          to: context.to,
+          isInline: context.isInline,
+          mode: "rich",
+          documentHash: hashAiDraftSource(getAiDocumentFingerprint(currentEditor.state.doc.toJSON())),
+        };
+      },
+    };
+  }, [effectiveReadOnly, getCurrentMarkdownForAi, markDirty, setMarkdownSource, useMarkdownSourceEditor, useMobilePlainTextEditor]);
 
   const syncMarkdownAiMenu = useCallback(() => {
     if (!useMarkdownSourceEditor || effectiveReadOnly || useMobilePlainTextEditor || !readAiSelectionMenuPreference()) {
@@ -4740,6 +4867,7 @@ const RichEditorPane = ({
               editingMemoIdRef={editingMemoIdRef}
               editor={editor}
               scrollContainer={editorScrollContainer}
+              contentRef={setOutlineContent}
               collapsedAnchor={collapsedOutlineAnchor}
               collapsed={editorOutlineCollapsed}
               shortcutLabel={formatShortcutBinding(shortcutSettings.toggleOutline)}
@@ -4852,6 +4980,7 @@ const RichEditorPane = ({
             type="button"
             variant="outline"
             size="icon"
+            ref={setAiLauncher}
             data-ai-assistant-launcher=""
             className={cn(
               "absolute z-30 size-11 rounded-full border-slate-200 bg-card text-slate-950 shadow-[0_8px_24px_rgba(15,23,42,0.14)] hover:bg-card hover:text-slate-950",
@@ -4929,6 +5058,8 @@ const RichEditorPane = ({
           selectionRequest={selectionRequest}
           onDismissSelectionPin={() => setSelectionPin(null)}
           onReplaceSelection={replacePinnedSelection}
+          aiDraftEditor={aiDraftEditor}
+          localDataScope={localDataScope}
           contentMarkdown={currentMarkdownForAi}
           memoId={memo.id}
           notebookId={memo.notebookId}

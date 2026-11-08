@@ -4,6 +4,7 @@ import {
   parsePreparedAiGeneration,
   streamDirectAiGeneration,
 } from "./ai-direct-stream";
+import type { AiRunRequest } from "./ai-long-generation";
 import { throwIfAborted } from "./abort-signal";
 
 import { createPluginCapabilities } from './plugin-capabilities';
@@ -21,6 +22,15 @@ import type {
   ApiToken,
   AuthSession,
   LoginInput,
+  LoginMfaInput,
+  MfaChallenge,
+  TotpBatchConfirmInput,
+  TotpConfirmResponse,
+  TotpReauthInput,
+  TotpRecoveryCodesResponse,
+  TotpSetupResponse,
+  TotpSetupVerifyInput,
+  TotpStatus,
   LoginDeviceSession,
   InstanceUser,
   CreatedApiToken,
@@ -66,6 +76,9 @@ import type {
   AiTranscriptionStandard,
   AiPromptTemplate,
   AiPromptTemplateCreateInput,
+  AiModelConfigUpdateInput,
+  AiModelCapabilities,
+  AiModelCapabilityLimits,
   AiPromptTemplateUpdateInput,
   AiStreamEvent,
   AiGenerateInput,
@@ -353,6 +366,22 @@ export class ApiRequestError extends Error {
     this.responseDiagnostics = responseDiagnostics;
   }
 }
+
+/** The second-step challenge carried by a 401 `mfa_required` login error. */
+export const getMfaChallenge = (error: unknown): MfaChallenge | null => {
+  if (!(error instanceof ApiRequestError) || error.status !== 401 || error.code !== "mfa_required") return null;
+  const details = error.details as Partial<MfaChallenge> | undefined;
+  if (!details || typeof details.challengeToken !== "string" || !details.challengeToken) return null;
+  return {
+    challengeToken: details.challengeToken,
+    expiresAt: typeof details.expiresAt === "string" ? details.expiresAt : "",
+    methods: Array.isArray(details.methods) ? details.methods : ["totp", "recovery_code"],
+  };
+};
+
+/** A recovery-code session hit a business route before rebinding TOTP. */
+export const isMfaRebindRequiredError = (error: unknown) =>
+  error instanceof ApiRequestError && error.status === 403 && error.code === "mfa_rebind_required";
 
 export type ApiResponseDiagnostics = {
   cloudflareMitigated: boolean;
@@ -827,10 +856,10 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       request<ListLoginDeviceSessionsResponse>("/api/v1/auth/sessions"),
 
     revokeLoginDeviceSession: (sessionId: string) =>
-      request<{ ok: true }>(`/api/v1/auth/sessions/${sessionId}`, { method: "DELETE" }),
+      request<{ ok: true }>(`/api/v1/auth/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
 
     updateLoginDeviceSession: (sessionId: string, payload: { label: string | null }) =>
-      request<{ ok: true }>(`/api/v1/auth/sessions/${sessionId}`, {
+      request<{ ok: true }>(`/api/v1/auth/sessions/${encodeURIComponent(sessionId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
@@ -840,6 +869,55 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
 
     login: (payload: LoginInput) =>
       request<AuthSession>("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    /** Second login step after `login` rejected with `getMfaChallenge(error)`. */
+    completeMfaLogin: (payload: LoginMfaInput) =>
+      request<AuthSession>("/api/v1/auth/login/mfa", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    getTotpStatus: () => request<TotpStatus>("/api/v1/auth/totp"),
+
+    /** Starts enabling (password) or rebinding (password + code; none when restricted). */
+    startTotpSetup: (payload: TotpReauthInput) =>
+      request<TotpSetupResponse>("/api/v1/auth/totp/setup", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    /** Step 2: the code for the setup this client was shown (`setupId` from `startTotpSetup`). */
+    verifyTotpSetup: (payload: TotpSetupVerifyInput) =>
+      request<TotpRecoveryCodesResponse>("/api/v1/auth/totp/setup/verify", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    /** Last step: activates exactly the batch the user saved (`batchId` from `verifyTotpSetup`). */
+    confirmTotpSetup: (payload: TotpBatchConfirmInput) =>
+      request<TotpConfirmResponse>("/api/v1/auth/totp/setup/confirm", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    regenerateRecoveryCodes: (payload: TotpReauthInput) =>
+      request<TotpRecoveryCodesResponse>("/api/v1/auth/totp/recovery-codes", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    /** Activates exactly the batch from `regenerateRecoveryCodes`; a replaced batch answers 409. */
+    confirmRecoveryCodes: (payload: TotpBatchConfirmInput) =>
+      request<{ ok: true }>("/api/v1/auth/totp/recovery-codes/confirm", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    disableTotp: (payload: TotpReauthInput) =>
+      request<{ ok: true }>("/api/v1/auth/totp/disable", {
         method: "POST",
         body: JSON.stringify(payload),
       }),
@@ -970,6 +1048,13 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
     addAiModel: (providerConfigId: string, payload: { modelId: string; displayName?: string }) =>
       request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models`, {
         method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    /** Omitted fields keep their value; `null` restores the default budget. */
+    updateAiModel: (providerConfigId: string, modelConfigId: string, payload: AiModelConfigUpdateInput) =>
+      request<AiSettings>(`/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models/${encodeURIComponent(modelConfigId)}`, {
+        method: "PATCH",
         body: JSON.stringify(payload),
       }),
 
@@ -1114,14 +1199,78 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
 
     streamAiGeneration: async (payload: AiGenerateInput, streamOptions: { signal?: AbortSignal; onEvent: (event: AiStreamEvent) => void }) => {
       throwIfAborted(streamOptions.signal);
-      const { context, response } = await send("/api/v1/ai/generate/prepare", {
-        method: "POST", body: JSON.stringify(payload), signal: streamOptions.signal,
+      const prepare = async (run: AiRunRequest = { segmentation: {} }) => {
+        const { context, response } = await send("/api/v1/ai/generate/prepare", {
+          // This client can send a request without an output limit when none is known, and can run
+          // a long task in parts or continue a cut-off result (#652).
+          method: "POST", body: JSON.stringify({ ...payload, ...run, allowUnboundedOutput: true }), signal: streamOptions.signal,
+        });
+        if (response.status === 404 || response.status === 410) throw directAiUnavailable();
+        if (!response.ok) await throwRequestError(context, response);
+        const parsed = parsePreparedAiGeneration(await response.json());
+        if (!parsed) throw new ApiRequestError("The AI prepare response is invalid", 502, "ai_generation_failed");
+        return parsed;
+      };
+      let prepared = await prepare();
+      // Reporting and detecting are separate: a fresh cache is not read again, but a limit learned
+      // from a provider error is still reported so a cached value that is too high gets corrected.
+      const target = prepared.capabilityTarget;
+      const report = (limits: AiModelCapabilityLimits) => target
+        ? request(`/api/v1/ai/providers/${encodeURIComponent(target.providerConfigId)}/models/${encodeURIComponent(target.modelConfigId)}/capabilities`, {
+          method: "PUT",
+          body: JSON.stringify({
+            provider: prepared.provider,
+            modelId: prepared.modelId,
+            baseUrl: prepared.baseUrl,
+            configVersion: target.configVersion,
+            ...limits,
+          }),
+        }).then(() => true, () => false)
+        : Promise.resolve(false);
+      if (target && prepared.detectCapabilities) {
+        // The instance has no fresh limits for this model: read them from the provider once,
+        // save them for every client, and prepare again so this request already uses them.
+        const { detectAiModelCapabilities } = await import("./ai-model-capabilities-direct");
+        const limits = await detectAiModelCapabilities(prepared, providerFetch(), streamOptions.signal);
+        const hasLimits = Boolean(limits && (limits.maxOutputTokens || limits.maxInputTokens || limits.contextWindowTokens));
+        if (limits && await report(limits) && hasLimits) prepared = await prepare();
+      }
+      const { runAiLongGeneration } = await import("./ai-long-generation");
+      await runAiLongGeneration({
+        first: prepared,
+        prepare,
+        signal: streamOptions.signal,
+        onEvent: streamOptions.onEvent,
+        stream: (next, onEvent) => streamDirectAiGeneration(next, payload.attachments, {
+          fetch: providerFetch(),
+          signal: streamOptions.signal,
+          // The run reports one start for all of its requests.
+          onEvent: (event) => { if (event.type !== "start") onEvent(event); },
+          onOutputLimit: async (maxOutputTokens) => {
+            if (!target) return;
+            await report({ maxOutputTokens, maxInputTokens: null, contextWindowTokens: null, source: "provider-error" });
+          },
+        }),
       });
-      if (response.status === 404 || response.status === 410) throw directAiUnavailable();
-      if (!response.ok) await throwRequestError(context, response);
-      const prepared = parsePreparedAiGeneration(await response.json());
-      if (!prepared) throw new ApiRequestError("The AI prepare response is invalid", 502, "ai_generation_failed");
-      await streamDirectAiGeneration(prepared, payload.attachments, { fetch: providerFetch(), ...streamOptions });
+    },
+
+    /** Read a saved model's limits from its provider and store them on the instance (#652). */
+    detectAiModelCapabilities: async (providerConfigId: string, modelConfigId: string, modelId: string, signal?: AbortSignal) => {
+      const credential = await request<{ provider: AiProvider; baseUrl: string; apiKey: string; configVersion: string }>(
+        `/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/direct-credential`,
+        { method: "POST", body: JSON.stringify({ modelId }), signal },
+      );
+      const { detectAiModelCapabilities } = await import("./ai-model-capabilities-direct");
+      const limits = await detectAiModelCapabilities({ ...credential, modelId }, providerFetch(), signal);
+      if (!limits) return null;
+      return request<{ detectedCapabilities: AiModelCapabilities | null }>(
+        `/api/v1/ai/providers/${encodeURIComponent(providerConfigId)}/models/${encodeURIComponent(modelConfigId)}/capabilities`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ provider: credential.provider, modelId, baseUrl: credential.baseUrl, configVersion: credential.configVersion, ...limits }),
+          signal,
+        },
+      );
     },
 
     listUsers: () => request<ListUsersResponse>("/api/v1/users"),
@@ -1135,7 +1284,7 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       }),
 
     updateUser: (userId: string, payload: { displayName?: string | null; password?: string; isDisabled?: boolean }) =>
-      request<UserResponse>(`/api/v1/users/${userId}`, {
+      request<UserResponse>(`/api/v1/users/${encodeURIComponent(userId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
@@ -1184,18 +1333,18 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       }),
 
     updateNotebook: (notebookId: string, payload: NotebookUpdateInput) =>
-      request<NotebookResponse>(`/api/v1/notebooks/${notebookId}`, {
+      request<NotebookResponse>(`/api/v1/notebooks/${encodeURIComponent(notebookId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
 
     deleteNotebook: (notebookId: string) =>
-      request<{ ok: true }>(`/api/v1/notebooks/${notebookId}`, {
+      request<{ ok: true }>(`/api/v1/notebooks/${encodeURIComponent(notebookId)}`, {
         method: "DELETE",
       }),
 
     restoreNotebook: (notebookId: string) =>
-      request<NotebookResponse>(`/api/v1/notebooks/${notebookId}/restore`, {
+      request<NotebookResponse>(`/api/v1/notebooks/${encodeURIComponent(notebookId)}/restore`, {
         method: "POST",
       }),
 
@@ -1221,7 +1370,7 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       }),
 
     revokeApiToken: (tokenId: string) =>
-      request<{ ok: true }>(`/api/v1/api-tokens/${tokenId}`, {
+      request<{ ok: true }>(`/api/v1/api-tokens/${encodeURIComponent(tokenId)}`, {
         method: "DELETE",
       }),
 
@@ -1317,19 +1466,19 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       title?: string | null;
       contentMarkdown?: string;
       tags?: string[];
-    }) => request<TemplateResponse>(`/api/v1/templates/${templateId}`, {
+    }) => request<TemplateResponse>(`/api/v1/templates/${encodeURIComponent(templateId)}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
 
     useTemplate: (templateId: string, notebookId: string, locale?: string) =>
-      request<MemoResponse>(`/api/v1/templates/${templateId}/use`, {
+      request<MemoResponse>(`/api/v1/templates/${encodeURIComponent(templateId)}/use`, {
         method: "POST",
         body: JSON.stringify(locale ? { notebookId, locale } : { notebookId }),
       }),
 
     deleteTemplate: (templateId: string) =>
-      request<{ ok: true }>(`/api/v1/templates/${templateId}`, { method: "DELETE" }),
+      request<{ ok: true }>(`/api/v1/templates/${encodeURIComponent(templateId)}`, { method: "DELETE" }),
 
     listScheduledTasks: (executorDeviceId?: string) => {
       const search = new URLSearchParams();
@@ -1462,23 +1611,23 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       }
 
       const suffix = search.toString() ? `?${search.toString()}` : "";
-      return request<MemoResponse>(`/api/v1/memos/${memoId}${suffix}`);
+      return request<MemoResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}${suffix}`);
     },
 
     getMemoShare: (memoId: string) =>
-      request<MemoShareResponse>(`/api/v1/memos/${memoId}/share`),
+      request<MemoShareResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}/share`),
 
     listMemoShares: (offset = 0, limit = 50) =>
       request<ListMemoSharesResponse>(`/api/v1/memo-shares?offset=${offset}&limit=${limit}`),
 
     createMemoShare: (memoId: string) =>
-      request<{ share: MemoShare }>(`/api/v1/memos/${memoId}/share`, {
+      request<{ share: MemoShare }>(`/api/v1/memos/${encodeURIComponent(memoId)}/share`, {
         method: "POST",
         body: JSON.stringify({}),
       }),
 
     updateMemoShare: (memoId: string, payload: { passwordProtected?: boolean; password?: string; slug?: string | null; showUpdatedAt?: boolean; showBranding?: boolean; expiresAt?: string | null }) =>
-      request<{ share: MemoShare }>(`/api/v1/memos/${memoId}/share`, {
+      request<{ share: MemoShare }>(`/api/v1/memos/${encodeURIComponent(memoId)}/share`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
@@ -1517,18 +1666,18 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
     },
 
     revokeMemoShare: (memoId: string) =>
-      request<{ ok: true }>(`/api/v1/memos/${memoId}/share`, { method: "DELETE" }),
+      request<{ ok: true }>(`/api/v1/memos/${encodeURIComponent(memoId)}/share`, { method: "DELETE" }),
 
     createMemoEditSession: (memoId: string) =>
-      request<{ editSession: MemoEditSession }>(`/api/v1/memos/${memoId}/edit-sessions`, {
+      request<{ editSession: MemoEditSession }>(`/api/v1/memos/${encodeURIComponent(memoId)}/edit-sessions`, {
         method: "POST",
         body: JSON.stringify({}),
       }),
 
-    listMemoRevisions: (memoId: string) => request<ListMemoRevisionsResponse>(`/api/v1/memos/${memoId}/revisions`),
+    listMemoRevisions: (memoId: string) => request<ListMemoRevisionsResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}/revisions`),
 
     restoreMemoRevision: (memoId: string, revisionId: string) =>
-      request<MemoResponse>(`/api/v1/memos/${memoId}/revisions/${revisionId}/restore`, {
+      request<MemoResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}/revisions/${encodeURIComponent(revisionId)}/restore`, {
         method: "POST",
         body: JSON.stringify({}),
       }),
@@ -1723,7 +1872,7 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
         allowDestructiveOverwrite?: boolean;
       }
     ) =>
-      request<MemoResponse>(`/api/v1/memos/${memoId}`, {
+      request<MemoResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
@@ -1736,13 +1885,13 @@ export const createEdgeEverClient = (options: EdgeEverClientOptions = {}) => {
       }
 
       const suffix = search.toString() ? `?${search.toString()}` : "";
-      return request<{ ok: true }>(`/api/v1/memos/${memoId}${suffix}`, {
+      return request<{ ok: true }>(`/api/v1/memos/${encodeURIComponent(memoId)}${suffix}`, {
         method: "DELETE",
       });
     },
 
     restoreMemo: (memoId: string) =>
-      request<MemoResponse>(`/api/v1/memos/${memoId}/restore`, {
+      request<MemoResponse>(`/api/v1/memos/${encodeURIComponent(memoId)}/restore`, {
         method: "POST",
         body: JSON.stringify({}),
       }),

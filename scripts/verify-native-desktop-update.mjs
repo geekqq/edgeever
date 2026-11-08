@@ -1,3 +1,5 @@
+import { readNativeUpdateStatus } from "./native-update-status.mjs";
+import { macAppBundle, macAppExecutable } from "./native-update-macos.mjs";
 import { windowsUpdateInstallerRunning, stopWindowsUpdateFixtures } from "./native-update-windows.mjs";
 import { createServer } from "node:http";
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync, mkdirSync, chmodSync, appendFileSync } from "node:fs";
@@ -16,6 +18,7 @@ const evidence = join(root, "evidence");
 mkdirSync(evidence, { recursive: true });
 const report = { platform: process.platform, arch: process.arch, sourceSha: process.env.GITHUB_SHA, versions,
   instrumentation: "Full EdgeEver builds with isolated app identity, local feed, command harness and ephemeral Windows trust key; production update controller and native installers are unchanged.",
+  fixtureRun: process.env.FIXTURE_RUN || null,
   scenarios: [] };
 let feedVersion = intermediateVersion;
 let corruptSignature = false;
@@ -73,7 +76,7 @@ const installBaseline = async (directory) => {
   if (process.platform === "darwin") {
     const unpack = spawnSync("ditto", ["-x", "-k", join(root, oldVersion, packageName(oldVersion)), installed], { encoding: "utf8" });
     if (unpack.status !== 0) throw new Error(unpack.stderr);
-    return join(installed, "EdgeEver Update Verification.app/Contents/MacOS/EdgeEverUpdateVerifier");
+    return macAppExecutable(macAppBundle(installed));
   }
   if (process.platform === "win32") {
     stopWindowsUpdateFixtures();
@@ -104,7 +107,13 @@ const stopFixture = async (events) => {
   // Only PIDs written by the isolated test app are eligible for termination.
   for (const entry of events.filter((value) => value.event === "boot")) {
     if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(entry.pid), "/T", "/F"], { stdio: "ignore" });
-    else { try { process.kill(entry.pid, "SIGTERM"); } catch {} }
+    else {
+      const current = spawnSync("ps", ["-p", String(entry.pid), "-o", "command="], { encoding: "utf8" });
+      if (current.stdout?.trim().startsWith(entry.executable)) {
+        spawnSync("pkill", ["-KILL", "-P", String(entry.pid)], { stdio: "ignore" });
+        try { process.kill(entry.pid, "SIGKILL"); } catch {}
+      }
+    }
   }
 };
 
@@ -130,11 +139,16 @@ try {
       EDGE_EVER_UPDATE_VERIFIER_PUBLIC_KEY: join(root, "public-key.pem"),
     }));
     const executable = await installBaseline(directory);
+    let debuggerEndpoint;
     const launch = () => {
-      const child = spawn(executable, [], { env, stdio: ["ignore", "pipe", "pipe"] });
+      if (!existsSync(executable)) throw new Error(`Installed fixture executable missing: ${executable}`);
+      const child = spawn(executable, ["--inspect=127.0.0.1:0"], { env, stdio: ["ignore", "pipe", "pipe"] });
       child.on("error", (error) => appendFileSync(join(directory, "process.log"), `${error.stack}\n`));
       child.stdout.on("data", (data) => appendFileSync(join(directory, "process.log"), data));
-      child.stderr.on("data", (data) => appendFileSync(join(directory, "process.log"), data));
+      child.stderr.on("data", (data) => {
+        appendFileSync(join(directory, "process.log"), data);
+        debuggerEndpoint ||= /Debugger listening on (ws:\/\/[^\s]+)/.exec(String(data))?.[1];
+      });
       children.push(child);
       return child;
     };
@@ -146,7 +160,11 @@ try {
     };
     try {
       launch();
-      await until(() => events().some((entry) => entry.event === "ready" && entry.version === intermediateVersion), "intermediate package downloaded");
+      await until(() => {
+        const failure = readEvents(join(profile, "logs/desktop.log")).find((entry) => entry.event === "main.startup-failed");
+        if (failure) throw new Error(`Fixture startup failed: ${failure.message}`);
+        return events().some((entry) => entry.event === "ready" && entry.version === intermediateVersion);
+      }, "intermediate package downloaded");
       feedVersion = latestVersion;
       if (scenario === "reject-corrupt-update") {
         if (process.platform === "win32") corruptSignature = true;
@@ -169,13 +187,14 @@ try {
           return log.some((entry) => entry.event === "session.quit");
         }, "normal application shutdown");
         const digest = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
-        const expected = process.platform === "darwin"
-          ? join(root, latestVersion, process.arch === "arm64" ? "mac-arm64" : "mac", "EdgeEver Update Verification.app/Contents/Resources/app.asar")
+        const expectedPayload = () => process.platform === "darwin"
+          ? join(macAppBundle(join(root, latestVersion, process.arch === "arm64" ? "mac-arm64" : "mac")), "Contents/Resources/app.asar")
           : process.platform === "win32" ? join(root, latestVersion, "win-unpacked/resources/app.asar")
           : join(root, latestVersion, packageName(latestVersion));
         const installedPayload = process.platform === "darwin" ? join(dirname(executable), "../Resources/app.asar")
           : process.platform === "win32" ? join(dirname(executable), "resources/app.asar") : executable;
-        const expectedDigest = digest(expected);
+        const recordedDigest = join(root, latestVersion, "payload.sha256");
+        const expectedDigest = existsSync(recordedDigest) ? readFileSync(recordedDigest, "utf8").trim() : digest(expectedPayload());
         await until(() => {
           try { return digest(installedPayload) === expectedDigest; } catch { return false; }
         }, "native installation replaces the actual installed payload", 240_000);
@@ -187,7 +206,12 @@ try {
         // Confirm the installed executable itself now contains the new version.
         launch();
       } else {
-        await command("install");
+        const installation = await command("install");
+        if (installation.status?.state === "idle" || installation.event === "command-error") {
+          const status = await readNativeUpdateStatus(debuggerEndpoint).catch((error) => ({ error: error.message }));
+          writeFileSync(join(directory, "native-status.json"), JSON.stringify(status, null, 2));
+          throw new Error(`Native installation failed: ${JSON.stringify(status)}`);
+        }
       }
       await until(() => events().some((entry) => entry.event === "boot" && entry.version === latestVersion), "latest installed application launches", 240_000);
       await until(() => {
@@ -226,7 +250,7 @@ try {
   writeFileSync(join(evidence, "requests.json"), JSON.stringify(requests, null, 2));
   writeFileSync(join(evidence, "result.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
-  for (const child of children) { if (child.exitCode === null) child.kill("SIGTERM"); }
+  for (const child of children) { if (child.exitCode === null) child.kill("SIGKILL"); }
   server.closeAllConnections();
   server.close();
   // Keep logs; remove installed fixture apps and anonymous databases from artifacts.

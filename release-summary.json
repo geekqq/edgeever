@@ -1,26 +1,20 @@
 {
-  "version": "2.18.0",
+  "version": "2.23.0",
   "changes": {
     "en-US": [
-      "Add CodeBuddy as a desktop local Agent, using your installed official CLI (#758, @yulei666 in #761).",
-      "Optionally copy desktop scheduled backups to WebDAV, with separate upload status and retries (#723, @dkoryto in #763).",
-      "Keep untitled notes in search results after editing or deleting attachments (#751, @sivdead in #769).",
-      "Fix opening desktop attachments in system applications by opening a local copy (#768).",
-      "Preserve all PDF pages and blank paragraphs during export; improve WeChat copy formatting and adaptive directory cards."
+      "MCP now returns only Markdown for prose note bodies by default in get_memo and full-content list_memos. If your integration uses contentJson or contentText, pass format=\"all\" to keep the previous fields.",
+      "MCP keyword search includes a snippet of up to 200 characters around a body match when available.",
+      "The initial HTML for publicly shared notes leaves the note language unspecified and labels the built-in English text correctly. Thanks to @dkoryto in #816."
     ],
     "zh-CN": [
-      "桌面端新增 CodeBuddy 本机 Agent，可使用自行安装的官方 CLI（#758，@yulei666 贡献于 #761）。",
-      "桌面端定时备份支持可选的 WebDAV 异地副本，提供独立上传状态和重试（#723，@dkoryto 贡献于 #763）。",
-      "修复无标题笔记在编辑或删除附件后从搜索结果中消失的问题（#751，@sivdead 贡献于 #769）。",
-      "修复桌面端附件无法在系统应用中打开的问题，通过打开本地副本使用外部应用（#768）。",
-      "修复导出时 PDF 页面和空白段落丢失，改善复制到微信的排版及目录卡片自适应显示。"
+      "MCP 的 get_memo 和返回完整正文的 list_memos 现在默认只提供 Markdown 正文。依赖 contentJson 或 contentText 的集成可传入 format=\"all\"，继续获取原有字段。",
+      "MCP 关键词搜索命中笔记正文时，会附带最多 200 字的匹配片段。",
+      "公开分享页的初始 HTML 现在将笔记标题和正文的语言标记为未知，并正确标注页面自带的英文文案。感谢 @dkoryto 的 #816。"
     ],
     "ja": [
-      "デスクトップのローカル Agent に CodeBuddy を追加。インストール済みの公式 CLI を利用できます。",
-      "デスクトップの定期バックアップに、独立したアップロード状況と再試行を備えた WebDAV コピーを追加。",
-      "無題のノートを編集したり添付ファイルを削除したりした後、検索結果から消える問題を修正。",
-      "デスクトップの添付ファイルをローカルコピーとしてシステムのアプリで開けるよう修正。",
-      "エクスポート時に PDF の全ページと空行を保持し、WeChat へのコピー書式と目次カードの表示を改善。"
+      "MCP の get_memo と本文を含む list_memos は、標準のノート本文を既定で Markdown のみ返します。contentJson や contentText が必要な場合は format=\"all\" を指定してください。",
+      "MCP のキーワード検索では、本文に一致箇所がある場合に最大 200 文字の抜粋を返します。",
+      "公開共有ページの初期 HTML で、ノートの言語は未指定とし、組み込みの英語テキストには正しい言語を設定します。"
     ]
   }
 }

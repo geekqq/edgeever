@@ -1,3 +1,4 @@
+import { DesktopAttachmentWritebacks } from "./attachments/DesktopAttachmentWritebacks";
 import { useNoteImport } from "@/lib/note-import/use-note-import";
 import { NotebookAppearanceDialog } from "./dialogs/NotebookAppearanceDialog";
 import type { NotebookUpdateInput } from "@edgeever/shared";
@@ -245,7 +246,7 @@ export const WorkspaceApp = ({
     setSelectionMoveTargetNotebookId,
   } = useWorkspaceSelection(desktopWorkspaceRestore);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const autoSelectedDemoNotebookRef = useRef(false);
+  const demoNotebookAutoSelectionHandledRef = useRef(false);
   const [createdMemoEditId, setCreatedMemoEditId] = useState<string | null>(null);
   const pendingCreatedMemoIdRef = useRef<string | null>(null);
   const pendingQuickSwitcherMemoIdRef = useRef<string | null>(desktopWorkspaceRestore?.selectedMemoId ?? null); // also link/companion/plugin opens not yet in the list
@@ -739,8 +740,8 @@ export const WorkspaceApp = ({
       return;
     }
 
-    if (!autoSelectedDemoNotebookRef.current && selectedNotebookId === null && selectedTag === null) {
-      autoSelectedDemoNotebookRef.current = true;
+    if (!demoNotebookAutoSelectionHandledRef.current && selectedNotebookId === null && selectedTag === null) {
+      demoNotebookAutoSelectionHandledRef.current = true;
       setSelectedNotebookId(preferredNotebookId);
     }
   }, [i18n.resolvedLanguage, notebooks, selectedNotebookId, selectedTag]);
@@ -2530,6 +2531,8 @@ export const WorkspaceApp = ({
   };
 
   const handleSelectAllMemos = () => {
+    // An explicit All notes selection takes precedence over the startup default.
+    demoNotebookAutoSelectionHandledRef.current = true;
     clearPendingMemoSelection();
     navigateWorkspaceHome();
     setMemoView("notebook");
@@ -3391,6 +3394,7 @@ export const WorkspaceApp = ({
   return (
     <WorkspaceMotionProvider>
       <div className="edgeever-workspace-shell flex h-[100dvh] overflow-hidden text-slate-950">
+      <DesktopAttachmentWritebacks scope={localDataScope} />
       {(wechatImportsInProgress > 0 || sharedFileImportsInProgress > 0) && (
         <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center" role="status" aria-live="polite">
           <div className="rounded-full border border-slate-200 bg-card px-4 py-2 text-sm font-medium text-slate-700 shadow-lg">
@@ -3931,6 +3935,7 @@ export const WorkspaceApp = ({
                       onOpenExecutionCenter={handleOpenExecutionCenter}
                       memo={selectedMemo}
                       repository={repository}
+                      localDataScope={localDataScope}
                       pluginHost={pluginHost}
                       pluginNavigationRequest={pluginNavigationRequest}
                     onOpenAiPrompts={handleOpenAiPrompts}

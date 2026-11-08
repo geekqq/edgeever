@@ -15,13 +15,14 @@
     <a href="#sponsor--support"><img src="https://img.shields.io/badge/Sponsor-EdgeEver-ea4aaa?logo=github-sponsors" alt="Sponsor & Support" /></a>
   </p>
   <p>
-    <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <b>English</b> | <a href="README.ja.md">日本語</a> | <a href="README.pl-PL.md">Polski</a>
+    <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <b>English</b> | <a href="README.es.md">Español</a> | <a href="README.de.md">Deutsch</a> | <a href="README.fr.md">Français</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl-PL.md">Polski</a> | <a href="README.ru.md">Русский</a>
   </p>
   <p>
     <a href="https://t.me/+GvKYnL37feUwOTNl"><img src="assets/readme/community/telegram.svg" alt="Telegram" width="16" height="16" align="absmiddle" /> Telegram Group</a> &nbsp;|&nbsp;
     <a href="https://demo.edgeever.org">🌐 Live Demo</a> &nbsp;|&nbsp;
     <a href="#all-platform-clients--browser-extension">📱 Clients & Extension</a> &nbsp;|&nbsp;
-    <a href="#features">Feature Matrix & Capabilities</a>
+    <a href="#features">Feature Matrix & Capabilities</a> &nbsp;|&nbsp;
+    <a href="docs/note-migration-guide.en-US.md">📥 Note Migration</a>
   </p>
   <p align="center">
     <img src="assets/readme/edgeever-hero-v6.png" alt="EdgeEver Workspace Preview" width="800" />
@@ -112,7 +113,7 @@ Deploy EdgeEver entirely through GitHub and Cloudflare:
    32 characters). The username defaults to `admin`.
 5. Only after the Secret is deployed, open this Worker's Settings → Builds → Connect
    and connect the Fork's `main` branch.
-6. In Settings → Builds → API token, select or create the Cloudflare API token used for deployment, with D1 read/edit permission for the target account.
+6. In this Worker's Settings → Builds → API token, select or create the Cloudflare API token used for deployment, with D1 read/edit permission for the target account.
 7. In the Fork's GitHub repository, open Actions → Update deployed EdgeEver, enable the workflow if prompted, and select Run workflow on `main`. After confirming in Cloudflare that the corresponding build succeeded and deployment completed, verify `/api/health` and `/api/openapi.json`, then log in with the administrator
    username and password.
    This workflow will automatically sync future stable releases and fixes.
@@ -132,7 +133,7 @@ Complete the following 7 web steps strictly in order:
 3. **Create the Worker**: In Cloudflare Workers & Pages, select Create application → Start with Hello World!, name the Worker `edgeever`, and deploy it. This creates a placeholder; EdgeEver is deployed in Step 7.
 4. **Set the Administrator Password**: Under the Worker’s Settings → Variables and Secrets, add `EDGE_EVER_AUTH_PASSWORD` as type Secret and click Deploy. Its value is your chosen login password, preferably at least 32 characters. Complete this before connecting the Fork.
 5. **Connect the Fork**: In the existing Worker’s Settings → Builds → Connect, select the Fork and production branch `main`.
-6. **Configure Deployment Permissions**: In Settings → Builds → API token, select or create the Cloudflare API token used for deployment, with D1 read/edit permission for the target account.
+6. **Configure Deployment Permissions**: In this Worker's Settings → Builds → API token, select or create the Cloudflare API token used for deployment, with D1 read/edit permission for the target account.
 7. **Build & Verify**: In the Fork's GitHub repository, open Actions → Update deployed EdgeEver, enable the workflow if prompted, and select Run workflow on `main`. After confirming in Cloudflare that the corresponding build succeeded and deployment completed, confirm `/api/health` returns `200` and verify login. This workflow will automatically sync future stable releases and fixes.
 
 > 📖 For full step-by-step instructions and configuration details, see the [Online Deployment Guide](docs/deploy-cloudflare-button.md).
@@ -173,15 +174,13 @@ After installation, updates run automatically each day by default. To update man
 Whether for routine data backups, seamless cross-instance migration, or switching from existing note platforms, EdgeEver provides reliable, complete data mobility:
 
 - **EdgeEver Native Backup & Restore**: In the app, go to **Profile** -> **Import and export** to export or import an EdgeEver ZIP archive at any time. The extracted `notes/` directory keeps clean plaintext Markdown files and attachments for local archival or direct reading, while internal structured metadata enables lossless full restoration across different EdgeEver instances. Importing preserves existing unrelated data on the target instance and automatically overwrites records with matching IDs.
-- **Smooth Migration from Third-Party Apps**:
-  - **Evernote Migration**: Please refer to [docs/evernote-migration-guide.md](docs/evernote-migration-guide.md)
-  - **flomo Migration**: Please refer to [docs/flomo-migration-guide.md](docs/flomo-migration-guide.md)
-  - **Memos Migration**: Please refer to [docs/memos-migration-guide.md](docs/memos-migration-guide.md)
-  - **Notion Migration**: Please refer to [docs/notion-migration-guide.md](docs/notion-migration-guide.md)
+- **Smooth Migration from Third-Party Apps**: Whether importing via the native one-click GUI (supporting complete notes, hierarchies, and attachments from Evernote, Obsidian, and Joplin) or migrating from Notion, flomo, Memos, and other platforms via AI Agent & MCP, EdgeEver provides seamless, verified data mobility. See the [Third-Party Notes Migration Guide](docs/note-migration-guide.en-US.md).
 
 ### AI & MCP Protocol Integration
 
 Create an API token in **Profile** -> **API / MCP** and copy the Remote MCP configuration in one click to let AI Agents such as Claude Code, Cursor, Antigravity, and OpenClaw securely manage your knowledge base within account permissions. EdgeEver supports full CRUD for text notes, visual diagram notes (mind maps, flowcharts, and architecture diagrams), structured table notes, and native poster notes. Agents can also manage notebook hierarchies, tags, attachments, revision history, note templates, and AI instructions.
+
+For client setup, token access levels, troubleshooting and suggested rules for agents, see [Using EdgeEver with MCP clients](docs/mcp-guide.md).
 
 > 💡 **Inspiration:**
 > Make AI your true knowledge orchestrator and creative co-pilot—instantly turn concepts into interactive mind maps, flowcharts, architecture diagrams, and structured tables, while supplying private context to your AI Agents. Paired with EdgeEver’s powerful rich-text editing and elegant typography, AI-assisted content becomes beautifully structured, polished, and publication-ready knowledge assets.
@@ -325,21 +324,21 @@ EdgeEver is self-hosted software. Except for official demo instances, project ma
   <a href="https://github.com/tianma-if"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/5895871?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@tianma-if" /></a>
   <a href="https://github.com/dkoryto"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/2572180?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@dkoryto" /></a>
   <a href="https://github.com/sivdead"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/27731043?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@sivdead" /></a>
-  <a href="https://github.com/thorufur"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/55167?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@thorufur" /></a>
   <a href="https://github.com/yulei666"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/7358439?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@yulei666" /></a>
+  <a href="https://github.com/thorufur"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/55167?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@thorufur" /></a>
   <a href="https://github.com/arsaboo"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/18319734?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@arsaboo" /></a>
   <a href="https://github.com/alyyasser"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/16476111?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@alyyasser" /></a>
   <a href="https://github.com/MadlyFX"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/4896705?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@MadlyFX" /></a>
   <a href="https://github.com/claude"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/81847?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@claude" /></a>
   <a href="https://github.com/Crowszzz"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/75199133?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Crowszzz" /></a>
-  <a href="https://github.com/Shunamxiao"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/92215296?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Shunamxiao" /></a>
-  <a href="https://github.com/nzhdotme"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/9588882?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@nzhdotme" /></a>
-  <a href="https://github.com/mookim-eth"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/97934198?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@mookim-eth" /></a>
-  <a href="https://github.com/imgdown"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/348032096?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@imgdown" /></a>
-  <a href="https://github.com/X77seven"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/171017641?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@X77seven" /></a>
-  <a href="https://github.com/Sergmay911"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/304439776?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Sergmay911" /></a>
-  <a href="https://github.com/0xfelixli"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/81979996?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@0xfelixli" /></a>
-  <a href="https://github.com/Z-DDV"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/122068983?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Z-DDV" /></a>
   <a href="https://github.com/CottonChou"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/17818375?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@CottonChou" /></a>
+  <a href="https://github.com/Z-DDV"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/122068983?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Z-DDV" /></a>
+  <a href="https://github.com/0xfelixli"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/81979996?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@0xfelixli" /></a>
+  <a href="https://github.com/Sergmay911"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/304439776?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Sergmay911" /></a>
+  <a href="https://github.com/X77seven"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/171017641?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@X77seven" /></a>
+  <a href="https://github.com/imgdown"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/348032096?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@imgdown" /></a>
+  <a href="https://github.com/mookim-eth"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/97934198?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@mookim-eth" /></a>
+  <a href="https://github.com/nzhdotme"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/9588882?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@nzhdotme" /></a>
+  <a href="https://github.com/Shunamxiao"><img src="https://images.weserv.nl/?url=https://avatars.githubusercontent.com/u/92215296?v=4&h=96&w=96&fit=cover&mask=circle&maxage=7d" width="48" height="48" alt="@Shunamxiao" /></a>
 </p>
 <!-- readme-contributors:end -->
