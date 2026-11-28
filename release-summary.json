@@ -1,26 +1,17 @@
 {
-  "version": "2.33.0",
+  "version": "2.34.1",
   "changes": {
     "en-US": [
-      "On Web and desktop, deleting a notebook also deletes its subnotebooks and moves all their notes to the trash. For self-hosted instances, upgrade the server before upgrading the desktop app.",
-      "Desktop users can create subnotebooks offline. They appear in the sidebar immediately and sync when the connection returns.",
-      "Desktop sync sends large batches of note deletions in smaller groups and can resume after a partial sync.",
-      "Desktop sync feedback opens GitHub reliably when diagnostics are long and lets you copy the full report.",
-      "The EdgeEver website adds an open-source note-taking app comparison and makes guides easier to find in English and Chinese."
+      "Android notes and the editor load original images again, fixing blurry or distorted thumbnails. If you self-host, upgrade your server first to restore image clarity even on older Android clients.",
+      "Leeef Reader excerpt dates appear in smaller text, including older excerpts with the original date label."
     ],
     "zh-CN": [
-      "Web 和桌面端删除笔记本时，会一并删除其子笔记本，并将其中的所有笔记移入回收站。自托管用户请先升级服务端，再升级桌面端。",
-      "桌面端断网时可以新建子笔记本，创建后立即显示在侧栏，恢复联网后自动同步。",
-      "桌面端分批同步大量笔记的删除操作，部分同步成功后仍可续传。",
-      "桌面端的同步反馈在诊断信息过长时仍可打开 GitHub，并可复制完整报告。",
-      "EdgeEver 官网上线开源笔记应用对比指南，并优化中英文指南入口。"
+      "Android 笔记正文和编辑器恢复加载原图，修复缩略图模糊或失真的问题。自托管用户请先升级服务端，旧版 Android 客户端也能恢复清晰显示。",
+      "Leeef Reader 书摘的日期使用更小的字号，旧版带「摘录于」前缀的书摘也会生效。"
     ],
     "ja": [
-      "Web 版とデスクトップ版では、ノートブックを削除すると、配下のノートブックも削除され、その中のノートはすべてごみ箱に移動します。セルフホスト環境では、デスクトップアプリより先にサーバーを更新してください。",
-      "デスクトップ版でオフラインでも子ノートブックを作成できます。作成後すぐにサイドバーに表示され、再接続時に同期されます。",
-      "デスクトップ版では、大量のノート削除を小分けにして同期し、一部の同期が済んだ状態から再開できます。",
-      "デスクトップ版の同期フィードバックでは、診断情報が長くても GitHub を開けます。完全なレポートもコピーできます。",
-      "EdgeEver のサイトにオープンソースのノートアプリ比較ガイドを追加し、英語版と中国語版のガイドへの導線を改善しました。"
+      "Android のノートとエディターで元の画像を読み込むように戻し、サムネイルのぼやけや乱れを解消しました。セルフホストの場合は、旧版の Android アプリでも画像が鮮明に表示されるよう、先にサーバーを更新してください。",
+      "Leeef Reader の抜粋の日付を小さく表示します。従来の日付ラベルが付いた抜粋にも適用されます。"
     ]
   }
 }
